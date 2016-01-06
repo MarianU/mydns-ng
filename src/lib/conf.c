@@ -123,7 +123,7 @@ static CONF defConfig[] = {
   {	"-",			NULL,					N_("GENERAL OPTIONS"),								NULL,		0,		NULL	},
 
   {	"user",			V_("nobody"),				N_("Run with the permissions of this user"),					NULL,		0,		NULL	},
-  {	"group",		V_("nobody"),				N_("Run with the permissions of this group"),					NULL,		0,		NULL	},
+  {	"group",		V_("nogroup"),				N_("Run with the permissions of this group"),					NULL,		0,		NULL	},
   {	"listen",		V_("*"),				N_("Listen on these addresses ('*' for all)"),					"bind",		0,		NULL	},
   {	"no-listen",		V_(""),					N_("Do not listen on these addresses"),						NULL,		0,		NULL	},
 
