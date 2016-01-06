@@ -40,7 +40,7 @@ else
 endif
 
 autotools:
-	autoreconf --force
+	autoreconf --force --install --verbose
 	touch autotools
 
 flavour-mysql: clean-up configure

@@ -2,7 +2,7 @@ Source: mydns
 Section: net
 Priority: optional
 Maintainer: Delian Krustev <krustev@krustev.net>
-Build-Depends: debhelper (>= 8.0.0), libmysqlclient-dev, zlib1g-dev, texinfo, po-debconf, autoconf, automake
+Build-Depends: debhelper (>= 8.0.0), libmysqlclient-dev, zlib1g-dev, texinfo, po-debconf, autoconf, automake, libtool, libssl-dev, texinfo, autopoint
 Standards-Version: 3.9.3
 Homepage: http://mydns-ng.com/
 Vcs-Git: https://github.com/grahamc/mydns-ng.git

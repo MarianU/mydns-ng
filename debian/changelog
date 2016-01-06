@@ -1,8 +1,10 @@
-mydns (1:1.2.8.31-3) UNRELEASED; urgency=low
+mydns (1:1.2.8.31-4) UNRELEASED; urgency=low
 
   * Inc epoch in the package version to allow upgrades from previous releases.
+  * Fix build errors for newer texinfo in Jessie.
+  * Update README.Debian
 
- -- Delian Krustev <krustev@krustev.net>  Wed, 06 Jan 2016 15:37:26 +0200
+ -- Delian Krustev <krustev@krustev.net>  Wed, 06 Jan 2016 15:54:08 +0000
 
 mydns (1.2.8.31-1) unstable; urgency=low
 

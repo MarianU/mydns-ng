@@ -1,15 +1,32 @@
 MyDNS for Debian
 ================
 
-This package contains MyDNS packaged for Debian.
-The aliasing function to support an ALIAS column within the records table
-is enabled by default.
+MyDNS with MySQL support packaged for Debian.
+
+Built with:
+
+  --enable-alias --with-openssl
+
+See README.alias for more info on the MyDNS own ALIAS record type.
+
+There is no default config in the package:
+
+    mydns --dump-cofig > /etc/mydns.conf
+    chmod og-rw /etc/mydns.conf
+    # edit the settings in /etc/mydns.conf
+
+Then create the DB, tables and DB users as described in QUICKSTART.mysql .
+
+This package provides no init scripts by default.
+It is recommended to run MyDNS supervised:
+
+    mydns-conf /service/.mydns
+    # edit files in /service/.mydns
+    mv /service/.mydns/mydns
 
 PostgreSQL support
 ------------------
 
 Currently no builds for PostgreSQL are performed.
 
-
  -- Delian Krustev <krustev@krustev.net>  Wed, 06 Jan 2016 14:44:06 +0200
-
