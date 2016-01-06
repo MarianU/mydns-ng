@@ -1,13 +1,15 @@
-MyDNS for Debian
+MyDNS-NG for Debian
 ================
 
-MyDNS with MySQL support packaged for Debian.
+MyDNS-NG with MySQL support packaged for Debian.
 
-Built with:
+See:
+    http://mydns-ng.com/
+    http://mydns-ng.sf.net/
+    https://github.com/deliank/mydns-ng
 
-  --enable-alias --with-openssl
-
-See README.alias for more info on the MyDNS own ALIAS record type.
+How to run MyDNS
+----------------
 
 There is no default config in the package:
 
@@ -24,9 +26,21 @@ It is recommended to run MyDNS supervised:
     # edit files in /service/.mydns
     mv /service/.mydns/mydns
 
+Build options
+-------------
+
+Built with:
+
+  --enable-alias --with-openssl
+
+See README.alias for more info on the MyDNS own ALIAS record type.
+
+
 PostgreSQL support
 ------------------
 
 Currently no builds for PostgreSQL are performed.
+
+
 
  -- Delian Krustev <krustev@krustev.net>  Wed, 06 Jan 2016 14:44:06 +0200
