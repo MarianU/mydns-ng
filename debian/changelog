@@ -1,0 +1,11 @@
+mydns (1:1.2.8.31-3) UNRELEASED; urgency=low
+
+  * Inc epoch in the package version to allow upgrades from previous releases.
+
+ -- Delian Krustev <krustev@krustev.net>  Wed, 06 Jan 2016 15:37:26 +0200
+
+mydns (1.2.8.31-1) unstable; urgency=low
+
+  * Initial release.
+
+ -- Delian Krustev <krustev@krustev.net>  Wed, 06 Jan 2016 14:44:06 +0200
