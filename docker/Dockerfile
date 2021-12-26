@@ -2,8 +2,7 @@ FROM alpine:3.15 as build
 
 COPY ./ /mydns-ng/
 
-RUN apk update \
-    && apk add --virtual build-dependencies \
+RUN apk add --no-cache --virtual build-dependencies \
         build-base \
         gcc \
         wget \
@@ -18,7 +17,7 @@ RUN apk update \
         bash \
         openssh-client \
         libcap \
-    && apk add \
+    && apk --no-cache add \
         libintl \
         mariadb-connector-c \
     && mkdir /app \
