@@ -22,7 +22,7 @@
 
 #include "util.h"
 
-CONF *Conf;															/* Configuration data */
+// CONF *Conf;															/* Configuration data */
 
 
 /**************************************************************************************************
