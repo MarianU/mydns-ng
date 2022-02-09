@@ -1,3 +1,4 @@
 #!/bin/bash
 
-docker build . -f docker/Dockerfile --tag hostingpro/mydns-ng:v0.0.1-1.2.8.30
+docker build . -f docker/Dockerfile --tag docker.io/hostingpro/mydns-ng:v0.0.2-1.2.8.31
+

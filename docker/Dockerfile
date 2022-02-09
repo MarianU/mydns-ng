@@ -30,20 +30,21 @@ RUN apk add --no-cache --virtual build-dependencies \
     && rm -rf /mydns-ng \
     && rm -rf /var/cache/apk/* \
     && /usr/sbin/setcap 'cap_net_bind_service=+ep' /app/sbin/mydns \
-    && apk del build-dependencies
+    && apk del build-dependencies \
+    && mkdir -p /app/etc
 
-COPY mydns.conf /app/etc/mydns.conf.tpl
+COPY mydns.conf /app/mydns.conf.tpl
 COPY docker/healthcheck.sh /app/bin/
 COPY docker/start.sh /app/bin/
 
 RUN chmod 755 /app/bin/healthcheck.sh \
     && chmod 755 /app/bin/start.sh
 
-HEALTHCHECK --interval=30s --timeout=3s \
+HEALTHCHECK --interval=30s --timeout=3s --start-period=60s \
   CMD /app/bin/healthcheck.sh
 
 EXPOSE 53
+EXPOSE 53/udp
 
 ENTRYPOINT ["/bin/sh", "-c", "/app/bin/start.sh"]
 
-#    && git clone git://github.com/MarianU/mydns-ng.git \
