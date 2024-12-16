@@ -1,11 +1,10 @@
-FROM alpine:3.15 as build
+FROM alpine:3.21 as build
 
 COPY ./ /mydns-ng/
 
 RUN apk add --no-cache --virtual build-dependencies \
         build-base \
         gcc \
-        wget \
         git \
         autoconf \
         gettext \
@@ -20,8 +19,9 @@ RUN apk add --no-cache --virtual build-dependencies \
     && apk --no-cache add \
         libintl \
         mariadb-connector-c \
+        mariadb-client \
+        wget \
     && mkdir /app \
-    && cd / \
     && cd /mydns-ng/ \
     && ./bootstrap.sh \
     && ./configure --prefix=/app \
