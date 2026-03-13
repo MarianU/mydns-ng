@@ -61,8 +61,7 @@ mydns_set_ptr_table_name(const char *name)
 	MYDNS_PARSE_PTR
 **************************************************************************************************/
 inline MYDNS_PTR *
-mydns_parse_ptr(row)
-	SQL_ROW row; {
+mydns_parse_ptr(SQL_ROW row) {
   MYDNS_PTR *rv;
   register uint len;
 
@@ -91,9 +90,7 @@ mydns_parse_ptr(row)
 	MYDNS_PTR_DUP
 **************************************************************************************************/
 MYDNS_PTR *
-mydns_ptr_dup(start, recurse)
-     MYDNS_PTR *start;
-     int recurse;
+mydns_ptr_dup(MYDNS_PTR *start, int recurse)
 {
   register MYDNS_PTR *first = NULL, *last = NULL, *ptr, *s, *tmp;
 
@@ -124,8 +121,7 @@ mydns_ptr_dup(start, recurse)
 	MYDNS_PTR_SIZE
 **************************************************************************************************/
 inline size_t
-mydns_ptr_size(first)
-	MYDNS_PTR *first;
+mydns_ptr_size(MYDNS_PTR *first)
 {
 	register MYDNS_PTR *p;
 	register size_t size = 0;

@@ -232,15 +232,15 @@ spec:
   zoneTargets:
     ro2:
       targets:
-        - 82.77.186.233
+        - 203.0.113.10
       enabled: true
     ro3:
       targets:
-        - 5.2.225.29
+        - 203.0.113.20
       enabled: true
     de4:
       targets:
-        - 157.173.110.230
+        - 203.0.113.30
       enabled: true
   
   # Dynamic IP source (optional, replaces static targets)
@@ -266,13 +266,13 @@ status:
   
   # Currently active targets per zone
   activeTargets:
-    ro2: ["82.77.186.233"]
-    ro3: ["5.2.225.29"]
+    ro2: ["203.0.113.10"]
+    ro3: ["203.0.113.20"]
     de4: []  # Zone is down, records removed
   
   # Last resolved dynamic IPs (if using dynamicSource)
   resolvedTargets:
-    - 82.77.186.233
+    - 203.0.113.10
   
   # Conditions
   conditions:
@@ -935,15 +935,15 @@ spec:
   zoneTargets:
     ro2:
       targets:
-        - 82.77.186.233
+        - 203.0.113.10
       enabled: true
     ro3:
       targets:
-        - 5.2.225.29
+        - 203.0.113.20
       enabled: true
     de4:
       targets:
-        - 157.173.110.230
+        - 203.0.113.30
       enabled: true
 ```
 

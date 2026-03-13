@@ -161,13 +161,13 @@ cmdline(int argc, char **argv) {
 
   /* Get NS and/or MBOX if specified */
   if (optind < argc)
-    snprintf(ns, sizeof(ns), "%s", (char *)argv[optind++]);
+    snprintf(ns, DNS_MAXNAMELEN, "%s", (char *)argv[optind++]);
   if (optind < argc)
-    snprintf(mbox, sizeof(mbox), "%s", (char *)argv[optind++]);
+    snprintf(mbox, DNS_MAXNAMELEN, "%s", (char *)argv[optind++]);
   if (LASTCHAR(ns) != '.')
-    strncat(ns, ".", sizeof(ns) - strlen(ns) - 1);
+    strncat(ns, ".", DNS_MAXNAMELEN - strlen(ns) - 1);
   if (LASTCHAR(mbox) != '.')
-    strncat(mbox, ".", sizeof(mbox) - strlen(mbox) - 1);
+    strncat(mbox, ".", DNS_MAXNAMELEN - strlen(mbox) - 1);
 }
 /*--- cmdline() ---------------------------------------------------------------------------------*/
 
@@ -287,16 +287,17 @@ get_zone_ids(void) {
       querylen = ASPRINTF((char**)&query,
 			  "INSERT INTO %s (origin,ns,mbox) VALUES ('%s','%s','%s')",
 			  mydns_soa_table_name, esc_origin, esc_ns, esc_mbox);
-      RELEASE(esc_origin);
       RELEASE(esc_ns);
       RELEASE(esc_mbox);
       res = sql_nrquery(sql, (char*)query, querylen);
       RELEASE(query);
       if (res != 0)
-	ErrSQL(sql, "%s: Error inserting zone", Zones[n]->name);
+	      ErrSQL(sql, "%s: Error inserting zone", Zones[n]->name);
 
       if ((id = sql_count(sql, "SELECT id FROM soa WHERE origin='%s'", esc_origin)) < 0)
-	ErrSQL(sql, "%s: Error getting zone ID", Zones[n]->name);
+	      ErrSQL(sql, "%s: Error getting zone ID", Zones[n]->name);
+
+      RELEASE(esc_origin);
       Zones[n]->id = (uint32_t)id;
 
       Verbose("%s: Zone %u (new)", Zones[n]->name, Zones[n]->id);

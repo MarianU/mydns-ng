@@ -36,3 +36,21 @@ stamp-vti
 *.tar.gz
 texinfo.tex
 version.texi
+
+# IDE
+.vscode/
+.idea/
+
+# Build artifacts
+compile
+mkinstalldirs
+
+# Runtime
+mydns.pid
+data/
+
+# Gettext
+po/stamp-po
+
+# Temp files
+asd

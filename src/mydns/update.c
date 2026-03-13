@@ -1548,12 +1548,13 @@ update_delete_rrset_all(TASK *t, MYDNS_SOA *soa, UQRR *rr, uint32_t next_serial)
       RELEASE(xdata);
       RELEASE(xedatakey);
       res2 = sql_nrquery(sql, query, querylen);
-      RELEASE(query);
       if (res2 != 0) {
-	WarnSQL(sql, "%s: %s - %s",
-		desctask(t), _("error purging DELETE RR via DNS UPDATE"), query);
-	return dnserror(t, DNS_RCODE_SERVFAIL, ERR_DB_ERROR);
+	      WarnSQL(sql, "%s: %s - %s",
+		      desctask(t), _("error purging DELETE RR via DNS UPDATE"), query);
+        RELEASE(query);
+	      return dnserror(t, DNS_RCODE_SERVFAIL, ERR_DB_ERROR);
       }
+      RELEASE(query);
       updates++;
     }
     sql_free(res);
@@ -1844,14 +1845,15 @@ update_delete_rrset(TASK *t, MYDNS_SOA *soa, UQRR *rr, uint32_t next_serial) {
       RELEASE(xdata);
       RELEASE(xedata);
       res2 = sql_nrquery(sql, query, querylen);
-      RELEASE(query);
       if (res2 != 0) {
-	WarnSQL(sql, "%s: %s - %s",
-		desctask(t), _("error purging DELETE RR via DNS UPDATE"), query);
-	RELEASE(xname);
-	RELEASE(xhost);
-	return dnserror(t, DNS_RCODE_SERVFAIL, ERR_DB_ERROR);
+	      WarnSQL(sql, "%s: %s - %s",
+		      desctask(t), _("error purging DELETE RR via DNS UPDATE"), query);
+        RELEASE(query);
+	      RELEASE(xname);
+	      RELEASE(xhost);
+	      return dnserror(t, DNS_RCODE_SERVFAIL, ERR_DB_ERROR);
       }
+      RELEASE(query);
       updates++;
     }
     sql_free(res);
@@ -1927,7 +1929,7 @@ process_update(TASK *t, MYDNS_SOA *soa, UQ *q, UQRR *rr, uint32_t next_serial) {
   }
 
   /* 2.5.2: Delete an RRset */
-  if (rr->type != DNS_CLASS_ANY && !UQRR_DATA_LENGTH(rr)) {
+  if (rr->type != (dns_qtype_t)DNS_CLASS_ANY && !UQRR_DATA_LENGTH(rr)) {
 #if DEBUG_ENABLED && DEBUG_UPDATE
     DebugX("update", 1, _("%s: DNS UPDATE: 2.5.2: Delete an RRset"), desctask(t));
 #endif
@@ -1935,7 +1937,7 @@ process_update(TASK *t, MYDNS_SOA *soa, UQ *q, UQRR *rr, uint32_t next_serial) {
   }
 
   /* 2.5.3: Delete all RRsets from a name */
-  if (rr->type == DNS_CLASS_ANY && !UQRR_DATA_LENGTH(rr)) {
+  if (rr->type == (dns_qtype_t)DNS_CLASS_ANY && !UQRR_DATA_LENGTH(rr)) {
 #if DEBUG_ENABLED && DEBUG_UPDATE
     DebugX("update", 1, _("%s: DNS UPDATE: 2.5.3: Delete all RRsets from a name"), desctask(t));
 #endif
@@ -1943,7 +1945,7 @@ process_update(TASK *t, MYDNS_SOA *soa, UQ *q, UQRR *rr, uint32_t next_serial) {
   }
 
   /* 2.5.4: Delete an RR from an RRset */
-  if (rr->type != DNS_CLASS_ANY && UQRR_DATA_LENGTH(rr)) {
+  if (rr->type != (dns_qtype_t)DNS_CLASS_ANY && UQRR_DATA_LENGTH(rr)) {
 #if DEBUG_ENABLED && DEBUG_UPDATE
     DebugX("update", 1, _("%s: DNS UPDATE: 2.5.4: Delete an RR from an RRset"), desctask(t));
 #endif

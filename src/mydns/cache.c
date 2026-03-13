@@ -487,8 +487,8 @@ zone_cache_find(TASK *t, uint32_t zone, char *origin, dns_qtype_t type,
       /* Look at the appropriate node.  Descend list and find match. */
       for (n = NegativeCache->nodes[hash]; n; n = n->next_node)
 	if ((n->namelen == namelen) && (n->zone == zone) && (n->type == type)) {
-	  if (!n->name)
-	    Errx(_("negative cache node %p at hash %u has NULL name"), n, hash);
+	  // if (!n->name)
+	    // Errx(_("negative cache node %p at hash %u has NULL name"), n, hash);
 	  if (!memcmp(n->name, name, namelen)) {
 	    /* Is the node expired? */
 	    if (n->expire && (current_time > n->expire)) {
@@ -513,8 +513,8 @@ zone_cache_find(TASK *t, uint32_t zone, char *origin, dns_qtype_t type,
     /* Look at the appropriate node.  Descend list and find match. */
     for (n = ZoneCache->nodes[hash]; n; n = n->next_node) {
       if ((n->namelen == namelen) && (n->zone == zone) && (n->type == type)) {
-	if (!n->name)
-	  Errx(_("zone cache node %p at hash %u has NULL name"), n, hash);
+	// if (!n->name)
+	  // Errx(_("zone cache node %p at hash %u has NULL name"), n, hash);
 	if (!memcmp(n->name, name, namelen)) {
 	  /* Is the node expired? */
 	  if (n->expire && (current_time > n->expire)) {
@@ -678,9 +678,9 @@ reply_cache_find(TASK *t) {
   /* Look at the appropriate node.  Descend list and find match. */
   for (n = ReplyCache->nodes[hash]; n; n = n->next_node) {
     if ((n->namelen == t->qdlen) && (n->type == t->qtype) && (n->protocol == t->protocol)) {
-      if (!n->name)
-	Errx(_("reply cache node %p at hash %u has NULL name"), n, hash);
-      if (!memcmp(n->name, t->qd, t->qdlen)) {
+  // if (!n->name)
+	  // Errx(_("reply cache node %p at hash %u has NULL name"), n, hash);
+  if (!memcmp(n->name, t->qd, t->qdlen)) {
 	/* Is the node expired? */
 	if (n->expire && (current_time > n->expire)) {
 	  cache_free_node(ReplyCache, hash, n);
@@ -761,8 +761,8 @@ add_reply_to_cache(TASK *t) {
   /* Look at the appropriate node.  Descend list and find match. */
   for (n = ReplyCache->nodes[hash]; n; n = n->next_node) {
     if ((n->namelen == t->qdlen) && (n->type == t->qtype) && (n->protocol == t->protocol)) {
-      if (!n->name)
-	Errx(_("reply cache node %p at hash %u has NULL name"), n, hash);
+  // if (!n->name)
+	  // Errx(_("reply cache node %p at hash %u has NULL name"), n, hash);
 
       if (!memcmp(n->name, t->qd, t->qdlen)) {
 	/* Is the node expired? */

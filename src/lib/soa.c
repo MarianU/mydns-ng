@@ -143,10 +143,10 @@ mydns_soa_parse(SQL_ROW row) {
   strncpy(rv->origin, row[1], sizeof(rv->origin)-1);
   strncpy(rv->ns, row[2], sizeof(rv->ns)-1);
   if (!rv->ns[0])
-    snprintf(rv->ns, sizeof(rv->ns), "ns.%s", rv->origin);
+    snprintf(rv->ns, 259, "ns.%s", rv->origin);
   strncpy(rv->mbox, row[3], sizeof(rv->mbox)-1);
   if (!rv->mbox[0])
-    snprintf(rv->mbox, sizeof(rv->mbox), "hostmaster.%s", rv->origin);
+    snprintf(rv->mbox, 267, "hostmaster.%s", rv->origin);
   rv->serial = atou(row[4]);
   rv->refresh = atou(row[5]);
   rv->retry = atou(row[6]);
@@ -163,12 +163,16 @@ mydns_soa_parse(SQL_ROW row) {
   len = strlen(rv->ns);
   if (rv->ns[len-1] != '.') {
     strncat(rv->ns, ".", sizeof(rv->ns) - len - 1);
-    strncat(rv->ns, rv->origin, sizeof(rv->ns) - len - 2);
+    // strncat(rv->ns, rv->origin, strlen(rv->origin));
+    snprintf(rv->ns, sizeof(rv->ns), "%s", rv->origin);
   }
+  //soa.c:166:5: error: ‘strncat’ accessing between 257 and 2147483900 bytes at offsets 260 and 4 may overlap 1 byte at offset 260 [-Werror=restrict]
+  //soa.c:166:5: error: ‘strncat’ accessing between 257 and 2147483898 bytes at offsets 260 and 4 may overlap 1 byte at offset 260 [-Werror=restrict]
   len = strlen(rv->mbox);
   if (rv->mbox[len-1] != '.') {
     strncat(rv->mbox, ".", sizeof(rv->mbox) - len - 1);
-    strncat(rv->mbox, rv->origin, sizeof(rv->mbox) - len - 2);
+    strncpy(rv->mbox, rv->origin, sizeof(rv->mbox) - len - 2);    
+    // strncat(rv->mbox, rv->origin, sizeof(rv->mbox) - len - 2);
   }
 
   /* Make sure TTL for SOA is at least the minimum */

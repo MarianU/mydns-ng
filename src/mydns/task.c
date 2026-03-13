@@ -414,7 +414,7 @@ desctask(TASK *t) {
 
   ASPRINTF(&desc, "%s: %s %s (%u) %s, %s %s",
 	   clientaddr(t), mydns_qtype_str(t->qtype),
-	   t->qname ? (char *)t->qname : _("<NONE>"),
+	   (char *)t->qname,
 	   t->internal_id, task_status_name(t), task_priority_name(t->priority),
 	   task_type_name(t->type));
 

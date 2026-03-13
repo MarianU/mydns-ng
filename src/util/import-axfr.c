@@ -130,7 +130,7 @@ make_question(uint16_t id, dns_qtype_t qtype, char *name, size_t *packetlen) {
   DNS_PUT16(dest, (uint16_t)qtype);				/* QTYPE */
   DNS_PUT16(dest, DNS_CLASS_IN);				/* QCLASS */
   len = dest - req;
-  
+
   if (packetlen) *packetlen = len;
 
   c = ALLOCATE(len, char[]);
@@ -240,7 +240,7 @@ process_axfr_answer(uchar *reply, size_t replylen, uchar *src) {
   uint32_t ttl;
 
   if (!(name = name_unencode2(reply, replylen, &src, &errcode)))
-    Errx("%s: %s: %s", thishostname, _("error reading name from answer section"), name);
+    Errx("%s: %s src %s", thishostname, _("error reading name from answer section"), src);
 
   DNS_GET16(type, src);
   DNS_GET16(class, src);
@@ -283,7 +283,7 @@ process_axfr_answer(uchar *reply, size_t replylen, uchar *src) {
 
   case DNS_QTYPE_CNAME:
     if (!(data = name_unencode2(reply, replylen, &src, &errcode)))
-      Errx("%s CNAME: %s: %s", name, _("error reading data"), data);
+      Errx("%s CNAME: %s: src %s", name, _("error reading data"), src);
     import_rr(shortname(name, 1), (uchar*)"CNAME", shortname(data, 0), strlen((char*)shortname(data, 0)), 0, ttl);
     RELEASE(data);
     break;
@@ -328,7 +328,7 @@ process_axfr_answer(uchar *reply, size_t replylen, uchar *src) {
       uint16_t pref;
       DNS_GET16(pref, src);
       if (!(data = name_unencode2(reply, replylen, &src, &errcode)))
-	Errx("%s MX: %s: %s", name, _("error reading data"), data);
+	      Errx("%s MX: %s: src %s", name, _("error reading data"), src);
       import_rr(shortname(name, 1), (uchar*)"MX", shortname(data, 0), strlen((char*)shortname(data, 0)), pref, ttl);
       RELEASE(data);
     }
@@ -336,7 +336,7 @@ process_axfr_answer(uchar *reply, size_t replylen, uchar *src) {
 
   case DNS_QTYPE_NS:
     if (!(data = name_unencode2(reply, replylen, &src, &errcode)))
-      Errx("%s NS: %s: %s", name, _("error reading data"), data);
+      Errx("%s NS: %s: src %s", name, _("error reading data"), src);
     import_rr(shortname(name, 1), (uchar*)"NS", shortname(data, 0), strlen((char*)shortname(data, 0)), 0, ttl);
     RELEASE(data);
     break;
@@ -346,7 +346,7 @@ process_axfr_answer(uchar *reply, size_t replylen, uchar *src) {
       struct in_addr addr;
       addr.s_addr = mydns_revstr_ip4(name);
       if (!(data = name_unencode2(reply, replylen, &src, &errcode)))
-	Errx("%s PTR: %s: %s", name, _("error reading data"), data);
+	      Errx("%s PTR: %s: src %s", name, _("error reading data"), src);
       import_rr(shortname(name, 1), (uchar*)"PTR", shortname(data, 0), strlen((char*)shortname(data, 0)), 0, ttl);
       RELEASE(data);
     }
@@ -356,15 +356,15 @@ process_axfr_answer(uchar *reply, size_t replylen, uchar *src) {
     {
       uchar *txtref;
       char *insdata;
-      
+
       /* Get mbox in 'data' */
       if (!(data = name_unencode2(reply, replylen, &src, &errcode)))
-	Errx("%s RP: %s: %s", name, _("error reading mbox"), data);
-      
+	      Errx("%s RP: %s: src %s", name, _("error reading mbox"), src);
+
       /* Get txt in 'txtref' */
       if (!(txtref = name_unencode2(reply, replylen, &src, &errcode)))
-	Errx("%s RP: %s: %s", name, _("error reading txt"), txtref);
-      
+	      Errx("%s RP: %s: src %s", name, _("error reading txt"), src);
+
       /* Construct data to insert */
       ASPRINTF(&insdata, "%s %s", shortname(data, 0), shortname(txtref, 0));
       RELEASE(data);
@@ -378,12 +378,12 @@ process_axfr_answer(uchar *reply, size_t replylen, uchar *src) {
     {
       uint16_t priority, weight, port;
       char		 *databuf;
-      
+
       DNS_GET16(priority, src);
       DNS_GET16(weight, src);
       DNS_GET16(port, src);
       if (!(data = name_unencode2(reply, replylen, &src, &errcode)))
-	Errx("%s SRV: %s: %s", name, _("error reading data"), data);
+	      Errx("%s SRV: %s: src %s", name, _("error reading data"), src);
       ASPRINTF(&databuf, "%u %u %s", weight, port, shortname(data, 0));
       RELEASE(data);
       import_rr(shortname(name, 1), (uchar*)"SRV", (uchar*)databuf, strlen(databuf), priority, ttl);
@@ -394,7 +394,7 @@ process_axfr_answer(uchar *reply, size_t replylen, uchar *src) {
   case DNS_QTYPE_TXT:
     {
       size_t len = *src++;
-      
+
       data = ALLOCATE(len + 1, char[]);
       memcpy(data, src, len);
       data[len] = '\0';
@@ -443,7 +443,7 @@ process_axfr_reply(uchar *reply, size_t replylen) {
   /* Read question section(s) */
   for (n = 0; n < qdcount; n++) {
     if (!(name = name_unencode2(reply, replylen, &src, &errcode)))
-      Errx("%s: %s: %s", thishostname, _("error reading name from question section"), name);
+      Errx("%s: %s: src %s", thishostname, _("error reading name from question section"), src);
     src += (SIZE16 * 2);
     RELEASE(name);
   }

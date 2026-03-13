@@ -47,8 +47,8 @@ typedef struct _command {
 
 static int messageid = 0;
 
-static int comms_sendping(TASK *, COMMS *, char *);
-static int comms_sendpong(TASK *, COMMS *, char *);
+static taskexec_t comms_sendping(TASK *, COMMS *, char *);
+static taskexec_t comms_sendpong(TASK *, COMMS *, char *);
 
 /* Commands from the master to the server */
 static COMMAND servercommands[] = { { "STOP AXFR",	NULL },

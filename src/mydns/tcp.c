@@ -175,7 +175,7 @@ read_tcp_length(TASK *t) {
 	READ_TCP_QUERY
 	Returns >= 0 on success, -1 on failure.
 **************************************************************************************************/
-int
+extern taskexec_t
 read_tcp_query(TASK *t) {
   unsigned char	*end = NULL;
   int		rv = 0;
