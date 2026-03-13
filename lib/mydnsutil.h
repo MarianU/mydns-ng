@@ -505,6 +505,7 @@ extern int		err_verbose;			/* Should ERR_VERBOSE output anything? */
 extern int		err_debug;			/* Should ERR_DEBUG output anything? */
 #endif
 extern FILE		*err_file;			/* Output to this file */
+extern int		log_format_json;		/* Use JSON log format? */
 
 extern void		error_reinit(void);
 extern void		error_init(const char *argv0, int facility);

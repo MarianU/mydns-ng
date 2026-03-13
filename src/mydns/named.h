@@ -29,8 +29,10 @@ typedef struct _named_queue *QUEUEP;
 #include "task.h"
 #include "cache.h"
 #include "rrl.h"
+#include "edns.h"
 #include "metrics.h"
 #include "http_server.h"
+#include "reload.h"
 
 #if HAVE_SYS_RESOURCE_H
 #	include <sys/resource.h>

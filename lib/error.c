@@ -21,6 +21,7 @@
 **************************************************************************************************/
 
 #include "mydnsutil.h"
+#include "jsonlog.h"
 
 #define ERROR_MAXMSGLEN	1024
 
@@ -38,6 +39,9 @@ int	err_debug = 0;
 
 /* Should error functions output to a file? */
 FILE	*err_file = NULL;
+
+/* Log format: 0 = text (default), 1 = json */
+int	log_format_json = 0;
 
 /**************************************************************************************************
 	ERROR_INIT
@@ -84,6 +88,13 @@ error_init(const char *argv0, int facility) {
 static void
 __error_out(int priority, const char *out, char **err_last) {
   static int  repeat = 0;
+
+  /* If JSON logging is enabled, use that instead */
+  if (log_format_json && jsonlog_enabled) {
+    jsonlog_level_t level = jsonlog_level_from_syslog(priority);
+    jsonlog_write(level, "mydns", "%s", out);
+    return;
+  }
 
   if (err_last) {
     /* Don't output the same error message again and again */

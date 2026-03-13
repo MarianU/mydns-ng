@@ -6,7 +6,7 @@ EXTRA_DIST		=	README
 
 noinst_LIBRARIES	=	libmydnsutil.a
 
-noinst_HEADERS		=	mydnsutil.h gettext.h getopt.h
+noinst_HEADERS		=	mydnsutil.h gettext.h getopt.h jsonlog.h
 
 INCLUDES		=	@INTLINCLUDE@ @SQLINCLUDE@
 
@@ -19,6 +19,7 @@ libmydnsutil_a_SOURCES	=	alloca.c \
 				inet_pton.c \
 				inet_ntop.c \
 				ip.c \
+				jsonlog.c \
 				memoryman.c \
 				passinput.c \
 				string.c \

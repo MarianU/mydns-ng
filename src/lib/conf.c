@@ -20,6 +20,9 @@
 
 #include "mydns.h"
 #include "db_health.h"
+#include "dbpool.h"
+#include "envconfig.h"
+#include "jsonlog.h"
 
 /* Make this nonzero to enable debugging for this source file */
 #define	DEBUG_CONF	1
@@ -56,6 +59,12 @@ uint32_t	rrl_window = 15;			/* Time window in seconds */
 uint32_t	rrl_slip = 2;				/* Slip ratio */
 int		rrl_ipv4_prefix = 24;			/* IPv4 prefix length */
 int		rrl_ipv6_prefix = 56;			/* IPv6 prefix length */
+
+/* EDNS0 configuration variables
+ * These are defined here so they can be used by utilities that don't link edns.c
+ * The actual EDNS implementation in edns.c declares these as extern */
+int		edns_enabled = 1;			/* Is EDNS0 enabled? */
+uint16_t	edns_max_udp_size = 4096;		/* Maximum UDP payload size */
 
 int		forward_recursive = 0;			/* Forward recursive queries? */
 int		recursion_timeout = 1;
@@ -156,8 +165,19 @@ static CONF defConfig[] = {
   {	"cache-warm-on-startup",	V_("no"),			N_("Pre-load SOA records into cache on startup"),				NULL,		0,		NULL	},
   {	"cache-warm-on-reconnect",	V_("yes"),			N_("Pre-load SOA records into cache after DB reconnection"),			NULL,		0,		NULL	},
 
+  {	"-",			NULL,					N_("DATABASE CONNECTION POOLING"),						NULL,		0,		NULL	},
+  {	"db-pool-enabled",	V_("no"),				N_("Enable database connection pooling"),					NULL,		0,		NULL	},
+  {	"db-pool-size",		V_("10"),				N_("Number of connections in pool"),						NULL,		0,		NULL	},
+  {	"db-pool-min",		V_("2"),				N_("Minimum idle connections to maintain"),					NULL,		0,		NULL	},
+  {	"db-pool-acquire-timeout",	V_("5"),			N_("Seconds to wait for available connection"),					NULL,		0,		NULL	},
+  {	"db-pool-validate-interval",	V_("30"),			N_("Seconds between idle connection health checks"),				NULL,		0,		NULL	},
+
   {	"-",			NULL,					N_("ESOTERICA"),								NULL,		0,		NULL	},
   {	"log",			V_("LOG_DAEMON"),			N_("Facility to use for program output (LOG_*/stdout/stderr)"),			NULL,		0,		NULL	},
+  {	"log-format",		V_("text"),				N_("Log format: text or json"),							NULL,		0,		NULL	},
+  {	"log-level",		V_("notice"),				N_("Minimum log level: debug, info, notice, warning, error"),			NULL,		0,		NULL	},
+  {	"query-log",		V_("no"),				N_("Enable query logging (requires log-format=json)"),				NULL,		0,		NULL	},
+  {	"log-file",		V_(""),					N_("Log file path (empty for stdout, used with log-format=json)"),		NULL,		0,		NULL	},
   {	"pidfile",		V_("/var/run/"PACKAGE_NAME".pid"),	N_("Path to PID file"),								NULL,		0,		NULL	},
   {	"timeout",		V_("120"),				N_("Number of seconds after which queries time out"),				NULL,		0,		NULL	},
   {	"multicpu",		V_("-1"),				N_("Number of CPUs installed on your system - (deprecated)"),			NULL,		0,		NULL	},
@@ -189,6 +209,10 @@ static CONF defConfig[] = {
   {	"rrl-slip",		V_("2"),				N_("Slip ratio (every Nth over-limit gets TC instead of drop)"),		NULL,		0,		NULL	},
   {	"rrl-ipv4-prefix",	V_("24"),				N_("IPv4 prefix length for client grouping"),					NULL,		0,		NULL	},
   {	"rrl-ipv6-prefix",	V_("56"),				N_("IPv6 prefix length for client grouping"),					NULL,		0,		NULL	},
+
+  {	"-",			NULL,					N_("EDNS0 (Extension mechanisms for DNS)"),					NULL,		0,		NULL	},
+  {	"edns-enabled",		V_("yes"),				N_("Enable EDNS0 support (RFC 6891)"),						NULL,		0,		NULL	},
+  {	"edns-max-udp-size",	V_("4096"),				N_("Maximum UDP payload size advertised to clients"),				NULL,		0,		NULL	},
 
   {	"-",			NULL,					N_("HTTP MANAGEMENT SERVER"),							NULL,		0,		NULL	},
   {	"http-enabled",		V_("no"),				N_("Enable HTTP management server for metrics/health"),				NULL,		0,		NULL	},
@@ -370,10 +394,43 @@ dump_config(void) {
 /**************************************************************************************************
 	CONF_SET_LOGGING
 	Sets the logging type and opens the syslog connection if necessary.
+	Also configures JSON logging if log-format=json.
 **************************************************************************************************/
 void
 conf_set_logging(void) {
   char *logtype;
+  const char *log_format;
+  const char *log_level;
+  const char *log_file;
+
+  /* Check if JSON logging is requested */
+  log_format = conf_get(&Conf, "log-format", NULL);
+  if (log_format && !strcasecmp(log_format, "json")) {
+    /* Initialize JSON logging */
+    log_format_json = 1;
+
+    /* Set log level */
+    log_level = conf_get(&Conf, "log-level", NULL);
+    jsonlog_min_level = jsonlog_parse_level(log_level);
+
+    /* Set query logging */
+    jsonlog_query_enabled = GETBOOL(conf_get(&Conf, "query-log", NULL));
+
+    /* Initialize JSON log output */
+    log_file = conf_get(&Conf, "log-file", NULL);
+    if (jsonlog_init(log_file) < 0) {
+      /* Fall back to text logging on error */
+      log_format_json = 0;
+      Warn(_("Failed to initialize JSON logging, falling back to text format"));
+    } else {
+      Verbose(_("JSON logging enabled, level=%s, query-log=%s"),
+	      jsonlog_level_name(jsonlog_min_level),
+	      jsonlog_query_enabled ? "yes" : "no");
+      return; /* Skip traditional logging setup when using JSON */
+    }
+  } else {
+    log_format_json = 0;
+  }
 
   /* logtype is preset to LOG_DAEMON unless overridden */
   logtype = STRDUP(conf_get(&Conf, "log", NULL));
@@ -517,6 +574,13 @@ load_config(void) {
       conf_set(&Conf, defConfig[n].name, defConfig[n].value, 1);
   }
 
+  /* Initialize environment configuration and apply container defaults */
+  envconfig_init();
+  envconfig_apply_container_defaults(&Conf);
+
+  /* Override config file values with environment variables */
+  envconfig_override_conf(&Conf);
+
   /* Support "mysql-user" etc. for backwards compatibility */
   if (conf_get(&Conf, "mysql-host", NULL))
     conf_set(&Conf, "db-host", conf_get(&Conf, "mysql-host", NULL), 0);
@@ -597,6 +661,16 @@ load_config(void) {
 	    rrl_responses_per_second, rrl_window, rrl_slip);
   }
 
+  /* EDNS0 settings */
+  edns_enabled = GETBOOL(conf_get(&Conf, "edns-enabled", NULL));
+  if (edns_enabled) {
+    edns_max_udp_size = atou(conf_get(&Conf, "edns-max-udp-size", NULL));
+    /* Enforce sensible limits */
+    if (edns_max_udp_size < 512) edns_max_udp_size = 512;
+    if (edns_max_udp_size > 65535) edns_max_udp_size = 65535;
+    Verbose(_("EDNS0 enabled: max-udp-size=%u"), edns_max_udp_size);
+  }
+
   /* Database resilience settings */
   db_stale_cache_ttl = atou(conf_get(&Conf, "stale-cache-ttl", NULL));
   db_reconnect_base_interval = atou(conf_get(&Conf, "db-reconnect-base-interval", NULL));
@@ -611,6 +685,25 @@ load_config(void) {
 
   /* Initialize database health tracking */
   db_health_init();
+
+  /* Database connection pooling settings */
+  db_pool_enabled = GETBOOL(conf_get(&Conf, "db-pool-enabled", NULL));
+  if (db_pool_enabled) {
+    db_pool_size = atou(conf_get(&Conf, "db-pool-size", NULL));
+    db_pool_min = atou(conf_get(&Conf, "db-pool-min", NULL));
+    db_pool_acquire_timeout = atou(conf_get(&Conf, "db-pool-acquire-timeout", NULL));
+    db_pool_validate_interval = atou(conf_get(&Conf, "db-pool-validate-interval", NULL));
+
+    /* Sanity checks */
+    if (db_pool_size < 1) db_pool_size = 1;
+    if (db_pool_size > 100) db_pool_size = 100;
+    if (db_pool_min > db_pool_size) db_pool_min = db_pool_size;
+    if (db_pool_acquire_timeout < 1) db_pool_acquire_timeout = 1;
+    if (db_pool_validate_interval < 5) db_pool_validate_interval = 5;
+
+    Verbose(_("Connection pooling enabled: size=%u, min=%u, timeout=%u, validate=%u"),
+	    db_pool_size, db_pool_min, db_pool_acquire_timeout, db_pool_validate_interval);
+  }
 
   mydns_rr_extended_data = GETBOOL(conf_get(&Conf, "extended-data-support", NULL));
 

@@ -176,6 +176,8 @@ mydns_rr_get_type(char *type) {
   case 'C':
     if (type[1] == 'N' && type[2] == 'A' && type[3] == 'M' && type[4] == 'E' && !type[5])
       return DNS_QTYPE_CNAME;
+    if (type[1] == 'A' && type[2] == 'A' && !type[3])
+      return DNS_QTYPE_CAA;
     break;
 
   case 'H':
@@ -800,6 +802,7 @@ mydns_rr_prepare_query(uint32_t zone, dns_qtype_t type, const char *name, const 
   case DNS_QTYPE_SOA:		wheretype = " AND type='SOA'"; break;
   case DNS_QTYPE_SRV:		wheretype = " AND type='SRV'"; break;
   case DNS_QTYPE_TXT:		wheretype = " AND type='TXT'"; break;
+  case DNS_QTYPE_CAA:		wheretype = " AND type='CAA'"; break;
   case DNS_QTYPE_ANY:		wheretype = ""; break;
   default:
     errno = EINVAL;

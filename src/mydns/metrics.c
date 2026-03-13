@@ -196,7 +196,7 @@ metrics_inc_cache_miss(int cache_index) {
 char *
 metrics_format_prometheus(size_t *out_len) {
 	char *buf = NULL;
-	size_t bufsize = 8192;
+	size_t bufsize = 16384;  /* Increased to accommodate reload metrics */
 	size_t len = 0;
 	int i, j;
 	uint64_t cumulative;
@@ -310,6 +310,10 @@ metrics_format_prometheus(size_t *out_len) {
 			(unsigned long)NegativeCache->count);
 	}
 #endif
+	len += snprintf(buf + len, bufsize - len, "\n");
+	
+	/* Add config reload metrics */
+	len += reload_format_prometheus(buf + len, bufsize - len);
 	
 	*out_len = len;
 	return buf;

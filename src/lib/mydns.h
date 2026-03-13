@@ -57,6 +57,10 @@ extern int		wildcard_recursion;		/* Number of levels of ancestor to search for w
 
 extern const char	*mydns_dbengine;		/* The db engine to use when creating tables - MySQL only */
 
+/* EDNS0 configuration */
+extern int		edns_enabled;			/* Is EDNS0 enabled? */
+extern uint16_t		edns_max_udp_size;		/* Maximum UDP payload size */
+
 extern uint32_t 	answer_then_quit;		/* Answer this many queries then quit */
 extern int		show_data_errors;		/* Output data errors? */
 
@@ -323,6 +327,8 @@ typedef enum							/* Query types */
 	DNS_QTYPE_NSEC3PARAM		= 51,
 
 	DNS_QTYPE_HIP			= 55,
+
+	DNS_QTYPE_CAA			= 257,		/* Certification Authority Authorization (RFC 8659) */
 
 	DNS_QTYPE_SPF			= 99,
 	DNS_QTYPE_UINFO			= 100,
@@ -648,6 +654,9 @@ extern void		dump_config(void);
 extern void		conf_set_logging(void);
 extern void		check_config_file_perms(void);
 
+/* envconfig.c - Environment variable configuration */
+#include "envconfig.h"
+
 
 /* db.c */
 extern void		db_connect(void);
@@ -657,6 +666,9 @@ extern void		db_verify_tables(void);
 
 /* db_health.c - Database resilience */
 #include "db_health.h"
+
+/* dbpool.c - Database connection pooling */
+#include "dbpool.h"
 
 
 #endif /* !_MYDNS_H */

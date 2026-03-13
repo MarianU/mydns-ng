@@ -360,6 +360,28 @@ task_new(TASK *t, unsigned char *data, size_t len) {
   if ((t->qtype == DNS_QTYPE_AXFR || t->qtype == DNS_QTYPE_IXFR) && (!axfr_enabled || t->protocol != SOCK_STREAM))
     return formerr(t, DNS_RCODE_REFUSED, ERR_NO_AXFR, NULL);
 
+  /* Parse EDNS0 OPT record from additional section if present */
+  if (t->arcount > 0 && edns_enabled) {
+    EDNS_DATA edns;
+    size_t ar_offset = src - data;	/* Offset to additional section start */
+
+    if (edns_parse(data, len, ar_offset, t->arcount, &edns) == 0) {
+      t->edns_ok = edns.has_edns;
+      t->edns_version = edns.version;
+      t->edns_udp_size = edns.udp_size;
+      t->edns_flags = edns.flags;
+
+      /* Check for unsupported EDNS version */
+      if (t->edns_ok && edns.version > EDNS_VERSION) {
+        /* RFC 6891: Respond with BADVERS */
+#if DEBUG_ENABLED && DEBUG_TASK
+        DebugX("task", 1, _("%s: EDNS0 version %u not supported"), desctask(t), edns.version);
+#endif
+        /* Note: We still process the query but will include BADVERS in response */
+      }
+    }
+  }
+
   /* If this is AXFR, fork to handle it so that other requests don't block */
 //  if (t->protocol == SOCK_STREAM && t->qtype == DNS_QTYPE_AXFR) {
   if ((t->protocol == SOCK_STREAM && t->qtype == DNS_QTYPE_AXFR) || (t->protocol == SOCK_STREAM && t->qtype == DNS_QTYPE_IXFR)) {

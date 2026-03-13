@@ -562,6 +562,140 @@ reply_add_txt(TASK *t, RR *r) {
 
 
 /**************************************************************************************************
+	REPLY_ADD_CAA
+	Adds a CAA record to the reply.
+	
+	CAA Wire Format (RFC 8659):
+	+0-1-2-3-4-5-6-7-+
+	|     FLAGS      |   1 byte
+	+----------------+
+	|   TAG LENGTH   |   1 byte
+	+----------------+
+	|      TAG       |   variable (tag length bytes)
+	+----------------+
+	|     VALUE      |   variable (remaining bytes)
+	+----------------+
+	
+	Returns the numeric offset of the start of this record within the reply, or -1 on error.
+**************************************************************************************************/
+static inline int
+reply_add_caa(TASK *t, RR *r) {
+  char		*dest = NULL;
+  size_t	size = 0;
+  MYDNS_RR	*rr = (MYDNS_RR *)r->rr;
+  char		*data = NULL;
+  uint16_t	datalen = 0;
+  char		*p = NULL;
+  char		*flags_str = NULL;
+  char		*tag = NULL;
+  char		*value = NULL;
+  char		*value_end = NULL;
+  uint8_t	flags = 0;
+  size_t	tag_len = 0;
+  size_t	value_len = 0;
+
+  data = MYDNS_RR_DATA_VALUE(rr);
+  datalen = MYDNS_RR_DATA_LENGTH(rr);
+
+  if (!data || datalen == 0) {
+    return rr_error(r->id, _("rr %u: %s (CAA %s) (data is empty)"), r->id,
+		    _("invalid data"), _("record"));
+  }
+
+  /* Parse CAA data from database format: "<flags> <tag> <value>" */
+  /* Make a working copy */
+  p = STRNDUP(data, datalen);
+  if (!p)
+    return dnserror(t, DNS_RCODE_SERVFAIL, ERR_INTERNAL);
+
+  /* Parse flags */
+  flags_str = p;
+  while (*p && !isspace((unsigned char)*p))
+    p++;
+  if (*p) {
+    *p++ = '\0';
+  }
+  flags = (uint8_t)atoi(flags_str);
+
+  /* Skip whitespace */
+  while (*p && isspace((unsigned char)*p))
+    p++;
+
+  /* Parse tag */
+  tag = p;
+  while (*p && !isspace((unsigned char)*p))
+    p++;
+  if (*p) {
+    *p++ = '\0';
+  }
+  tag_len = strlen(tag);
+  if (tag_len == 0 || tag_len > 255) {
+    RELEASE(flags_str);
+    return rr_error(r->id, _("rr %u: %s (CAA %s) (tag='%s')"), r->id,
+		    _("invalid tag length"), _("record"), tag);
+  }
+
+  /* Skip whitespace */
+  while (*p && isspace((unsigned char)*p))
+    p++;
+
+  /* Parse value (may be quoted) */
+  if (*p == '"') {
+    p++;  /* Skip opening quote */
+    value = p;
+    value_end = strrchr(value, '"');
+    if (value_end) {
+      value_len = value_end - value;
+    } else {
+      value_len = strlen(value);
+    }
+  } else {
+    value = p;
+    value_len = strlen(value);
+    /* Trim trailing whitespace */
+    while (value_len > 0 && isspace((unsigned char)value[value_len - 1])) {
+      value_len--;
+    }
+  }
+
+  if (reply_start_rr(t, r, (char*)r->name, DNS_QTYPE_CAA, rr->ttl, "CAA") < 0) {
+    RELEASE(flags_str);
+    return (-1);
+  }
+
+  /* CAA RDATA size: flags (1) + tag_len (1) + tag + value */
+  size = 1 + 1 + tag_len + value_len;
+  r->length += SIZE16 + size;
+
+  if (!(dest = rdata_enlarge(t, SIZE16 + size))) {
+    RELEASE(flags_str);
+    return dnserror(t, DNS_RCODE_SERVFAIL, ERR_INTERNAL);
+  }
+
+  DNS_PUT16(dest, size);
+
+  /* Write flags (1 byte) */
+  *dest++ = flags;
+
+  /* Write tag length (1 byte) */
+  *dest++ = (uint8_t)tag_len;
+
+  /* Write tag */
+  memcpy(dest, tag, tag_len);
+  dest += tag_len;
+
+  /* Write value */
+  memcpy(dest, value, value_len);
+  dest += value_len;
+
+  RELEASE(flags_str);
+
+  return (0);
+}
+/*--- reply_add_caa() ---------------------------------------------------------------------------*/
+
+
+/**************************************************************************************************
 	REPLY_PROCESS_RRLIST
 	Adds each resource record found in `rrlist' to the reply.
 **************************************************************************************************/
@@ -857,6 +991,11 @@ reply_process_rrlist(TASK *t, RRLIST *rrlist) {
 		_("unsupported resource record type"));
 	  break;
 
+	case DNS_QTYPE_CAA:
+	  if (reply_add_caa(t, r) < 0)
+	    return (-1);
+	  break;
+
 	case DNS_QTYPE_SPF:
 	  Warnx("%s: %s: %s", desctask(t), mydns_qtype_str(rr->type),
 		_("unsupported resource record type"));
@@ -983,11 +1122,28 @@ truncate_rrlist(TASK *t, off_t maxpkt, RRLIST *rrlist, datasection_t ds) {
 /**************************************************************************************************
 	REPLY_CHECK_TRUNCATION
 	If this reply would be truncated, removes any RR's that won't fit and sets the truncation flag.
+	Uses EDNS UDP size if client sent EDNS0.
 **************************************************************************************************/
 static void
-reply_check_truncation(TASK *t, int *ancount, int *nscount, int *arcount) {
-  size_t maxpkt = (t->protocol == SOCK_STREAM ? DNS_MAXPACKETLEN_TCP : DNS_MAXPACKETLEN_UDP);
-  size_t maxrd = maxpkt - (DNS_HEADERSIZE + t->qdlen);
+reply_check_truncation(TASK *t, int *ancount, int *nscount, int *arcount, size_t edns_opt_len) {
+  size_t maxpkt;
+  size_t maxrd;
+
+  /* Determine maximum packet size based on protocol and EDNS */
+  if (t->protocol == SOCK_STREAM) {
+    maxpkt = DNS_MAXPACKETLEN_TCP;
+  } else if (t->edns_ok && edns_enabled) {
+    /* Use EDNS negotiated size */
+    EDNS_DATA edns;
+    edns.has_edns = t->edns_ok;
+    edns.udp_size = t->edns_udp_size;
+    maxpkt = edns_get_max_response_size(&edns, 0);
+  } else {
+    maxpkt = DNS_MAXPACKETLEN_UDP;
+  }
+
+  /* Account for EDNS OPT record space */
+  maxrd = maxpkt - (DNS_HEADERSIZE + t->qdlen + edns_opt_len);
 
   if (t->rdlen <= maxrd)
     return;
@@ -999,9 +1155,9 @@ reply_check_truncation(TASK *t, int *ancount, int *nscount, int *arcount) {
 
   /* Loop through an/ns/ar sections, truncating as necessary, and updating counts */
   t->rdlen = 0;
-  *ancount = truncate_rrlist(t, maxpkt, &t->an, ANSWER);
-  *nscount = truncate_rrlist(t, maxpkt, &t->ns, AUTHORITY);
-  *arcount = truncate_rrlist(t, maxpkt, &t->ar, ADDITIONAL);
+  *ancount = truncate_rrlist(t, maxpkt - edns_opt_len, &t->an, ANSWER);
+  *nscount = truncate_rrlist(t, maxpkt - edns_opt_len, &t->ns, AUTHORITY);
+  *arcount = truncate_rrlist(t, maxpkt - edns_opt_len, &t->ar, ADDITIONAL);
 }
 /*--- reply_check_truncation() ------------------------------------------------------------------*/
 
@@ -1040,6 +1196,8 @@ void
 build_reply(TASK *t, int want_additional) {
   char	*dest = NULL;
   int	ancount = 0, nscount = 0, arcount = 0;
+  unsigned char edns_opt[EDNS_OPT_RR_FIXED_SIZE];
+  int	edns_opt_len = 0;
 
   /* Add data to ADDITIONAL section */
   if (want_additional) {
@@ -1057,6 +1215,19 @@ build_reply(TASK *t, int want_additional) {
   if (t->ar.a_records > 1)			/* AUTHORITY section: Sort A/AAAA records */
     sort_a_recs(t, &t->ar, AUTHORITY);
 
+  /* Build EDNS0 OPT record if client sent EDNS */
+  if (t->edns_ok && edns_enabled) {
+    EDNS_DATA edns;
+    edns.has_edns = t->edns_ok;
+    edns.udp_size = t->edns_udp_size;
+    edns.version = t->edns_version;
+    edns.flags = t->edns_flags;
+    edns.ext_rcode = 0;  /* Extended RCODE (upper 8 bits) */
+    edns_opt_len = edns_build_opt(edns_opt, sizeof(edns_opt), &edns, t->hdr.rcode);
+    if (edns_opt_len < 0)
+      edns_opt_len = 0;  /* Failed to build, skip OPT record */
+  }
+
   /* Build `rdata' containing resource records in ANSWER, AUTHORITY, and ADDITIONAL */
   t->replylen = DNS_HEADERSIZE + t->qdlen + t->rdlen;
   if (reply_process_rrlist(t, &t->an)
@@ -1069,15 +1240,15 @@ build_reply(TASK *t, int want_additional) {
   nscount = t->ns.size;
   arcount = t->ar.size;
 
-  /* Verify reply length */
-  reply_check_truncation(t, &ancount, &nscount, &arcount);
+  /* Verify reply length (account for EDNS OPT record size) */
+  reply_check_truncation(t, &ancount, &nscount, &arcount, edns_opt_len);
 
   /* Make sure header bits are set correctly */
   t->hdr.qr = 1;
   t->hdr.cd = 0;
 
-  /* Construct the reply */
-  t->replylen = DNS_HEADERSIZE + t->qdlen + t->rdlen;
+  /* Construct the reply (including EDNS OPT record if applicable) */
+  t->replylen = DNS_HEADERSIZE + t->qdlen + t->rdlen + edns_opt_len;
   dest = t->reply = ALLOCATE(t->replylen, char[]);
 
   DNS_PUT16(dest, t->id);					/* Query ID */
@@ -1085,10 +1256,16 @@ build_reply(TASK *t, int want_additional) {
   DNS_PUT16(dest, t->qdcount);					/* QUESTION count */
   DNS_PUT16(dest, ancount);					/* ANSWER count */
   DNS_PUT16(dest, nscount);					/* AUTHORITY count */
-  DNS_PUT16(dest, arcount);					/* ADDITIONAL count */
+  DNS_PUT16(dest, arcount + (edns_opt_len > 0 ? 1 : 0));	/* ADDITIONAL count (include OPT) */
   if (t->qdlen && t->qd)
     DNS_PUT(dest, t->qd, t->qdlen);				/* Data for QUESTION section */
   DNS_PUT(dest, t->rdata, t->rdlen);				/* Resource record data */
+
+  /* Append EDNS0 OPT record to additional section */
+  if (edns_opt_len > 0) {
+    memcpy(dest, edns_opt, edns_opt_len);
+    dest += edns_opt_len;
+  }
 
 #if DEBUG_ENABLED && DEBUG_REPLY
   DebugX("reply", 1, _("%s: reply:     id = %u"), desctask(t),
@@ -1107,6 +1284,9 @@ build_reply(TASK *t, int want_additional) {
 	 t->hdr.ra, t->hdr.ra ? "available" : "unavailable");
   DebugX("reply", 1, _("%s: reply:  rcode = %u (%s)"), desctask(t),
 	 t->hdr.rcode, mydns_rcode_str(t->hdr.rcode));
+  if (edns_opt_len > 0)
+    DebugX("reply", 1, _("%s: reply:   edns = yes (udp_size=%u)"), desctask(t),
+	   edns_max_udp_size);
   /* escdata(t->reply, t->replylen); */
 #endif
 }

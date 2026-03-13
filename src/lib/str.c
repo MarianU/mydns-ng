@@ -110,6 +110,8 @@ mydns_qtype_str(dns_qtype_t qtype) {
 
   case DNS_QTYPE_HIP:		return ("HIP");
 
+  case DNS_QTYPE_CAA:		return ("CAA");
+
   case DNS_QTYPE_SPF:		return ("SPF");
   case DNS_QTYPE_UINFO:		return ("UINFO");
   case DNS_QTYPE_UID:		return ("UID");

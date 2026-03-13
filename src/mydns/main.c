@@ -102,6 +102,7 @@ usage(int status) {
     puts(_("  -c, --conf=FILE         read config from FILE instead of the default"));
     puts(_("      --create-tables     output table creation SQL and exit"));
     puts(_("      --dump-config       output configuration and exit"));
+    puts(_("      --dump-config-env   output configuration with sources and exit"));
     printf("                          (%s: \"%s\")\n", _("default"), MYDNS_CONF);
     puts("");
     puts(_("  -D, --database=DB       database name to use"));
@@ -134,13 +135,14 @@ usage(int status) {
 static void
 cmdline(int argc, char **argv) {
   char	*optstr = NULL;
-  int	want_dump_config = 0, optc = 0, optindex = 0;
+  int	want_dump_config = 0, want_dump_config_env = 0, optc = 0, optindex = 0;
   int	do_create_tables = 0;
   struct option const longopts[] = {
     {"background",		no_argument,			NULL,	'b'},
     {"conf",			required_argument,		NULL,	'c'},
     {"create-tables",		no_argument,			NULL,	0},
     {"dump-config",		no_argument,			NULL,	0},
+    {"dump-config-env",		no_argument,			NULL,	0},
 
     {"database",		required_argument,		NULL,	'D'},
     {"host",			required_argument,		NULL,	'h'},
@@ -214,6 +216,8 @@ cmdline(int argc, char **argv) {
 	  usage(EXIT_SUCCESS);
 	else if (!strcmp(opt, "dump-config"))		/* --dump-config */
 	  want_dump_config++;
+	else if (!strcmp(opt, "dump-config-env"))	/* --dump-config-env */
+	  want_dump_config_env++;
 	else if (!strcmp(opt, "create-tables"))		/* --create-tables */
 	  do_create_tables = 1;
 	else if (!strcmp(opt, "quit-after"))		/* --quit-after */
@@ -296,6 +300,11 @@ cmdline(int argc, char **argv) {
 
   if (want_dump_config) {
     dump_config();
+    exit(EXIT_SUCCESS);
+  }
+
+  if (want_dump_config_env) {
+    envconfig_dump_config(&Conf);
     exit(EXIT_SUCCESS);
   }
 
@@ -469,6 +478,7 @@ sigusr2(int dummy) {
 
 /**************************************************************************************************
 	SIGHUP
+	Handle SIGHUP signal: empty caches, reload tables, and trigger config reload.
 **************************************************************************************************/
 static void
 master_sighup(int dummy) {
@@ -481,13 +491,17 @@ master_sighup(int dummy) {
 static void
 sighup(int dummy) {
 
+  /* Trigger configuration hot reload */
+  reload_trigger();
+
+  /* Empty caches (will be rebuilt with potentially new settings) */
   cache_empty(ZoneCache);
 #if USE_NEGATIVE_CACHE
   cache_empty(NegativeCache);
 #endif
   cache_empty(ReplyCache);
   db_check_optional();
-  Notice(_("SIGHUP received: cache emptied, tables reloaded"));
+  Notice(_("SIGHUP received: config reload triggered, cache emptied, tables reloaded"));
   got_sighup = 0;
 }
 /*--- sighup() ----------------------------------------------------------------------------------*/
@@ -1223,6 +1237,9 @@ server_loop(INITIALTASK *initial_tasks, int serverfd) {
     if (got_sigusr2) sigusr2(SIGUSR2);
     if (got_sigchld) child_cleanup(SIGCHLD);
 
+    /* Check for pending config reload (triggered by SIGHUP) */
+    reload_check();
+
     if(shutting_down) { break; }
 
     gettick();
@@ -1465,6 +1482,9 @@ master_loop(INITIALTASK *initial_tasks) {
     if (got_sigusr2) master_sigusr2(SIGUSR2);
     if (got_sigchld) master_child_cleanup(SIGCHLD);
 
+    /* Check for pending config reload (triggered by SIGHUP) */
+    reload_check();
+
     if(shutting_down) { break; }
 
     gettick();
@@ -1655,6 +1675,7 @@ main(int argc, char **argv)
 
   cache_init();						/* Initialize cache */
   rrl_init();						/* Initialize Response Rate Limiting */
+  reload_init();					/* Initialize configuration hot reload */
   http_server_init();					/* Initialize HTTP management server */
 
   /* Start listening fd's */

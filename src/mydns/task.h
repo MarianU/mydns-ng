@@ -245,6 +245,12 @@ typedef struct _named_task {
 
   int			update_done;		/* Did we do any dynamic updates? */
   int			info_already_out;	/* Has the info already been output? */
+
+  /* EDNS0 information (RFC 6891) */
+  int			edns_ok;		/* Client sent valid EDNS0 OPT record */
+  uint8_t		edns_version;		/* EDNS version from client */
+  uint16_t		edns_udp_size;		/* Client's advertised UDP payload size */
+  uint16_t		edns_flags;		/* EDNS flags (includes DO bit) */
 } TASK;
 
 #endif /* !_MYDNS_TASK_H */
