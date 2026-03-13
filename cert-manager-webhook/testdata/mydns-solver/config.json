@@ -1,0 +1,7 @@
+{
+  "dbSecretRef": {
+    "name": "mydns-db-credentials",
+    "namespace": "cert-manager"
+  },
+  "ttl": 60
+}

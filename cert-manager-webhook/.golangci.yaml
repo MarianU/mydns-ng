@@ -1,0 +1,90 @@
+# golangci-lint configuration
+# https://golangci-lint.run/usage/configuration/
+
+run:
+  timeout: 5m
+  modules-download-mode: readonly
+
+linters:
+  enable:
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - gofmt
+    - goimports
+    - misspell
+    - unconvert
+    - unparam
+    - nakedret
+    - prealloc
+    - exportloopref
+    - gocritic
+    - godot
+    - gosec
+    - nolintlint
+
+linters-settings:
+  errcheck:
+    check-type-assertions: true
+    check-blank: true
+
+  govet:
+    check-shadowing: true
+    enable-all: true
+
+  gofmt:
+    simplify: true
+
+  goimports:
+    local-prefixes: github.com/mydns-ng/mydns-acme-webhook
+
+  misspell:
+    locale: US
+
+  nakedret:
+    max-func-lines: 30
+
+  prealloc:
+    simple: true
+    range-loops: true
+    for-loops: true
+
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - style
+      - performance
+    disabled-checks:
+      - whyNoLint
+
+  godot:
+    scope: declarations
+    capital: true
+
+  gosec:
+    excludes:
+      - G104  # Unhandled errors (too noisy)
+
+  nolintlint:
+    require-explanation: true
+    require-specific: true
+
+issues:
+  exclude-rules:
+    # Exclude some linters from running on test files
+    - path: _test\.go
+      linters:
+        - gosec
+        - unparam
+        - gocritic
+
+    # Ignore long lines in generated files
+    - path: ".*\\.gen\\.go"
+      linters:
+        - lll
+
+  max-issues-per-linter: 50
+  max-same-issues: 10

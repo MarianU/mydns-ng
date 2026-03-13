@@ -1,0 +1,18 @@
+apiVersion: v2
+name: mydns-webhook
+description: A cert-manager DNS-01 webhook solver for MyDNS-NG
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords:
+  - cert-manager
+  - dns01
+  - webhook
+  - mydns
+  - acme
+maintainers:
+  - name: mydns-ng
+    url: https://github.com/mydns-ng
+home: https://github.com/mydns-ng/mydns-acme-webhook
+sources:
+  - https://github.com/mydns-ng/mydns-acme-webhook
