@@ -28,6 +28,9 @@ typedef struct _named_queue *QUEUEP;
 #include "mydns.h"
 #include "task.h"
 #include "cache.h"
+#include "rrl.h"
+#include "metrics.h"
+#include "http_server.h"
 
 #if HAVE_SYS_RESOURCE_H
 #	include <sys/resource.h>
@@ -178,6 +181,13 @@ extern SERVER		*find_server_for_task(TASK*);
 extern void		kill_server(SERVER *, int);
 extern void		server_status(void);
 extern void		named_cleanup(int);
+
+/* Graceful shutdown state (for health endpoint integration) */
+extern volatile int	shutting_down;		/* Non-zero when shutdown in progress */
+extern time_t		shutdown_start_time;	/* When shutdown was initiated */
+extern int		shutdown_timeout;	/* Seconds to wait for in-flight queries */
+extern int		accepting_new_queries(void);	/* Returns 1 if accepting new queries */
+extern void		graceful_shutdown(void);	/* Initiate graceful shutdown */
 
 /* message.c */
 extern char		*dns_make_message(TASK *, uint16_t, uint8_t, dns_qtype_t,

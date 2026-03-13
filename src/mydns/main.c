@@ -34,7 +34,11 @@ static int	got_sigusr1 = 0,
 	   	got_sighup = 0,
 	   	got_sigalrm = 0,		/* Signal flags */
 	   	got_sigchld = 0;		/* Signal flags */
-static int 	shutting_down = 0;		/* Shutdown in progress? */
+
+/* Graceful shutdown state - extern for health endpoint visibility */
+volatile int 	shutting_down = 0;		/* Shutdown in progress? */
+time_t		shutdown_start_time = 0;	/* When shutdown was initiated */
+int		shutdown_timeout = 30;		/* Seconds to wait for in-flight queries */
 
 int		run_as_root = 0;		/* Run as root user? */
 uint32_t 	answer_then_quit = 0;		/* Answer this many queries then quit */
@@ -67,11 +71,13 @@ INITIALTASK	master_initial_tasks[] = {
 INITIALTASK	primary_initial_tasks[] = {
   { notify_start,	"NOTIFY" },
   { task_start,		"TASK" },
+  { http_start,		"HTTP" },
   { NULL,		NULL }
 };
 
 INITIALTASK	process_initial_tasks[] = {
   { task_start,		"TASK" },
+  { http_start,		"HTTP" },
   { NULL,		NULL }
 };
 
@@ -279,6 +285,10 @@ cmdline(int argc, char **argv) {
 
   load_config();
 
+  /* Load shutdown timeout from config */
+  shutdown_timeout = atoi(conf_get(&Conf, "shutdown-timeout", NULL));
+  if (shutdown_timeout <= 0) shutdown_timeout = 30;  /* Ensure valid default */
+
   if (do_create_tables) {
     db_output_create_tables();
     exit (EXIT_SUCCESS);
@@ -451,6 +461,7 @@ sigusr2(int dummy) {
   cache_status(NegativeCache);
 #endif
   cache_status(ReplyCache);
+  rrl_status();				/* Report RRL statistics */
   got_sigusr2 = 0;
 }
 /*--- sigusr2() ---------------------------------------------------------------------------------*/
@@ -563,17 +574,94 @@ free_other_tasks(TASK *t, int closeallfds) {
 
 /**************************************************************************************************
 	NAMED_CLEANUP
+	Signal handler for graceful shutdown initiation.
 **************************************************************************************************/
 void
 named_cleanup(int signo) {
 
   shutting_down = signo;
+  shutdown_start_time = time(NULL);
+  Notice(_("Graceful shutdown initiated (signal %d), waiting for in-flight queries"), signo);
 
+}
+
+/**************************************************************************************************
+	ACCEPTING_NEW_QUERIES
+	Returns 1 if the server is accepting new queries, 0 during shutdown.
+	Used by UDP/TCP listeners and health endpoint.
+**************************************************************************************************/
+int
+accepting_new_queries(void) {
+  return (shutting_down == 0);
+}
+
+/**************************************************************************************************
+	COUNT_IN_FLIGHT_TASKS
+	Count the number of in-flight query tasks (excluding listener tasks).
+**************************************************************************************************/
+static int
+count_in_flight_tasks(void) {
+  int i = 0, j = 0, count = 0;
+  TASK *t = NULL;
+
+  for (i = NORMAL_TASK; i <= PERIODIC_TASK; i++) {
+    for (j = HIGH_PRIORITY_TASK; j <= LOW_PRIORITY_TASK; j++) {
+      QUEUE *TaskQ = TaskArray[i][j];
+      for (t = TaskQ->head; t; t = t->next) {
+        /* Count only query tasks, not listener/periodic tasks */
+        if (TASKCLASS(t->status) == QueryTask) {
+          count++;
+        }
+      }
+    }
+  }
+  return count;
+}
+
+/**************************************************************************************************
+	GRACEFUL_SHUTDOWN
+	Perform graceful shutdown: wait for in-flight queries to complete or timeout.
+**************************************************************************************************/
+void
+graceful_shutdown(void) {
+  time_t elapsed = 0;
+  int in_flight = 0;
+
+  if (!shutting_down) return;
+
+  /* Wait for in-flight tasks to complete (up to shutdown_timeout) */
+  while ((elapsed = time(NULL) - shutdown_start_time) < shutdown_timeout) {
+    in_flight = count_in_flight_tasks();
+    if (in_flight == 0) {
+      Notice(_("Graceful shutdown: all in-flight queries completed"));
+      break;
+    }
+    
+    /* Log progress every 5 seconds */
+    if ((elapsed % 5) == 0 && elapsed > 0) {
+      Notice(_("Graceful shutdown: waiting for %d in-flight queries (%ld/%d seconds)"),
+             in_flight, (long)elapsed, shutdown_timeout);
+    }
+    
+    /* Brief sleep to avoid busy-waiting */
+    usleep(100000);  /* 100ms */
+  }
+
+  if (in_flight > 0) {
+    Notice(_("Graceful shutdown: timeout reached with %d queries still in-flight"), in_flight);
+  }
+
+  Notice(_("Shutdown complete"));
 }
 
 void
 named_shutdown(int signo) {
   int n = 0;
+
+  /* Perform graceful shutdown wait if initiated by signal */
+  if (shutdown_start_time > 0) {
+    graceful_shutdown();
+  }
 
   switch (signo) {
   case 0:
@@ -599,6 +687,8 @@ named_shutdown(int signo) {
   cache_empty(NegativeCache);
 #endif
   cache_empty(ReplyCache);
+  rrl_cleanup();				/* Clean up Response Rate Limiting */
+  http_server_cleanup();			/* Clean up HTTP management server */
 
   /* Close listening FDs - do not sockclose these are shared with other processes */
   for (n = 0; n < num_tcp4_fd; n++)
@@ -1564,6 +1654,8 @@ main(int argc, char **argv)
   }
 
   cache_init();						/* Initialize cache */
+  rrl_init();						/* Initialize Response Rate Limiting */
+  http_server_init();					/* Initialize HTTP management server */
 
   /* Start listening fd's */
   create_listeners();

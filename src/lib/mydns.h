@@ -655,6 +655,9 @@ extern void		db_output_create_tables(void);
 extern void		db_check_optional(void);
 extern void		db_verify_tables(void);
 
+/* db_health.c - Database resilience */
+#include "db_health.h"
+
 
 #endif /* !_MYDNS_H */
 

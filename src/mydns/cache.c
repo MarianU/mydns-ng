@@ -19,6 +19,7 @@
 **************************************************************************************************/
 
 #include "named.h"
+#include "db_health.h"
 
 /* Make this nonzero to enable debugging for this source file */
 #define	DEBUG_CACHE	1
@@ -455,6 +456,75 @@ cache_hash(CACHE *ThisCache, uint32_t initval, void *buf, register size_t buflen
 
 
 /**************************************************************************************************
+	ZONE_CACHE_FIND_STALE
+	Look for stale (expired) data in the cache when database is unavailable.
+	Returns a copy of the cached data if found within stale-cache-ttl, NULL otherwise.
+**************************************************************************************************/
+void *
+zone_cache_find_stale(uint32_t zone, dns_qtype_t type,
+		      const char *name, size_t namelen) {
+  register uint32_t	hash = 0;
+  register CNODE	*n = NULL;
+
+  if (!name || !ZoneCache)
+    return (NULL);
+
+  /* db_stale_cache_ttl of 0 means stale cache is disabled */
+  if (db_stale_cache_ttl == 0)
+    return (NULL);
+
+  hash = cache_hash(ZoneCache, zone + type, (void*)name, namelen);
+
+  /* Look at the appropriate node. Descend list and find match. */
+  for (n = ZoneCache->nodes[hash]; n; n = n->next_node) {
+    if ((n->namelen == namelen) && (n->zone == zone) && (n->type == type)) {
+      if (!memcmp(n->name, name, namelen)) {
+	/* Found a matching node - check if it's stale but within stale TTL */
+	if (n->expire && (current_time > n->expire)) {
+	  /* Node is expired - check if within stale-cache-ttl */
+	  time_t stale_deadline = n->db_fetch_time + db_stale_cache_ttl;
+
+	  if (current_time <= stale_deadline && n->data) {
+	    /* Stale data is within acceptable range - serve it */
+	    db_health.stale_cache_hits++;
+
+	    Warn(_("Serving stale cache data for %s (expired %ld seconds ago, stale TTL allows %u seconds)"),
+		 name,
+		 (long)(current_time - n->expire),
+		 db_stale_cache_ttl);
+
+#if DEBUG_ENABLED && DEBUG_CACHE
+	    DebugX("cache", 1, _("Stale cache hit for %s (type=%s), expired %ld seconds ago"),
+		   name, mydns_qtype_str(type), (long)(current_time - n->expire));
+#endif
+
+	    /* Move to head of MRU list - stale data is better than nothing */
+	    mrulist_del(ZoneCache, n);
+	    mrulist_add(ZoneCache, n);
+
+	    if (type == DNS_QTYPE_SOA)
+	      return (n->data ? mydns_soa_dup(n->data, 1) : NULL);
+	    else
+	      return (n->data ? mydns_rr_dup(n->data, 1) : NULL);
+	  }
+
+#if DEBUG_ENABLED && DEBUG_CACHE
+	  DebugX("cache", 1, _("Stale cache data for %s too old (stale for %ld seconds, max %u)"),
+		 name, (long)(current_time - n->db_fetch_time), db_stale_cache_ttl);
+#endif
+	}
+	/* Node is either not expired or too stale */
+	break;
+      }
+    }
+  }
+
+  return (NULL);
+}
+/*--- zone_cache_find_stale() -------------------------------------------------------------------*/
+
+
+/**************************************************************************************************
 	ZONE_CACHE_FIND
 	Returns the SOA/RR from cache (or via the database) or NULL if `name' doesn't match.
 **************************************************************************************************/
@@ -542,12 +612,36 @@ zone_cache_find(TASK *t, uint32_t zone, char *origin, dns_qtype_t type,
     DebugX("cache", 1, _("%s: SQL query: table \"%s\", origin=\"%s\""), desctask(t), mydns_soa_table_name, name);
 #endif
     if (mydns_soa_load(sql, &soa, name) != 0) {
-      sql_reopen();
-      if (mydns_soa_load(sql, &soa, name) != 0) {
-	WarnSQL(sql, "%s: %s", name, _("error loading SOA"));
+      db_mark_failure();
+      if (db_should_retry()) {
+	sql_reopen();
+	if (mydns_soa_load(sql, &soa, name) != 0) {
+	  /* Database still failing - try stale cache */
+	  soa = zone_cache_find_stale(zone, type, name, namelen);
+	  if (soa) {
+	    /* Found stale data - return it */
+	    return (soa);
+	  }
+	  WarnSQL(sql, "%s: %s", name, _("error loading SOA"));
+	  *errflag = 1;
+	  return (NULL);
+	} else {
+	  db_mark_success();
+	}
+      } else {
+	/* In backoff - try stale cache first */
+	soa = zone_cache_find_stale(zone, type, name, namelen);
+	if (soa) {
+	  return (soa);
+	}
+	WarnSQL(sql, "%s: %s", name, _("error loading SOA (in backoff)"));
 	*errflag = 1;
 	return (NULL);
       }
+    } else {
+      /* Success - mark database as available */
+      if (db_health.state != DB_STATE_CONNECTED)
+	db_mark_success();
     }
 
 #ifdef DN_COLUMN_NAMES
@@ -571,14 +665,37 @@ zone_cache_find(TASK *t, uint32_t zone, char *origin, dns_qtype_t type,
 	   desctask(t), mydns_rr_table_name, zone, mydns_qtype_str(type), name);
 #endif
     if (mydns_rr_load_active(sql, &rr, zone, type, name, origin) != 0) {
-      sql_reopen();
-      if (mydns_rr_load_active(sql, &rr, zone, type, name, origin) != 0) {
-	WarnSQL(sql, _("error finding %s type resource records for name `%s' in zone %u"),
-		mydns_qtype_str(type), name, zone);
+      db_mark_failure();
+      if (db_should_retry()) {
 	sql_reopen();
+	if (mydns_rr_load_active(sql, &rr, zone, type, name, origin) != 0) {
+	  /* Database still failing - try stale cache */
+	  rr = zone_cache_find_stale(zone, type, name, namelen);
+	  if (rr) {
+	    return (rr);
+	  }
+	  WarnSQL(sql, _("error finding %s type resource records for name `%s' in zone %u"),
+		  mydns_qtype_str(type), name, zone);
+	  *errflag = 1;
+	  return (NULL);
+	} else {
+	  db_mark_success();
+	}
+      } else {
+	/* In backoff - try stale cache first */
+	rr = zone_cache_find_stale(zone, type, name, namelen);
+	if (rr) {
+	  return (rr);
+	}
+	WarnSQL(sql, _("error finding %s type resource records for name `%s' in zone %u (in backoff)"),
+		mydns_qtype_str(type), name, zone);
 	*errflag = 1;
 	return (NULL);
       }
+    } else {
+      /* Success - mark database as available */
+      if (db_health.state != DB_STATE_CONNECTED)
+	db_mark_success();
     }
 
 #ifdef DN_COLUMN_NAMES
@@ -620,6 +737,7 @@ zone_cache_find(TASK *t, uint32_t zone, char *origin, dns_qtype_t type,
   strncpy(n->name, name, sizeof(n->name)-1);
   n->namelen = namelen;
   n->insert_time = current_time;
+  n->db_fetch_time = current_time;  /* Track when data was fetched from DB for stale cache */
   if (type == DNS_QTYPE_SOA) {
     if (C == ZoneCache)
       n->data = mydns_soa_dup(soa, 1);

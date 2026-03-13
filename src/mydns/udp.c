@@ -97,6 +97,7 @@ write_udp_reply(TASK *t) {
   int			rv = 0;
   struct sockaddr	*addr = NULL;
   int			addrlen = 0;
+  int			rrl_action = RRL_ACTION_ALLOW;
 
   if (t->family == AF_INET) {
     addr = (struct sockaddr*)&t->addr4;
@@ -106,6 +107,59 @@ write_udp_reply(TASK *t) {
     addr = (struct sockaddr*)&t->addr6;
     addrlen = sizeof(struct sockaddr_in6);
 #endif
+  }
+
+  /* Check Response Rate Limiting before sending */
+  if (rrl_enabled && addr) {
+    rrl_check(addr, &rrl_action);
+
+    if (rrl_action == RRL_ACTION_DROP) {
+      /* Silently drop the response */
+#if DEBUG_ENABLED && DEBUG_UDP
+      DebugX("udp", 1, _("%s: RRL drop (id %u)"), desctask(t), t->id);
+#endif
+      return (TASK_COMPLETED);
+    }
+
+    if (rrl_action == RRL_ACTION_SLIP) {
+      /* Send truncated response (TC bit set) to force TCP retry */
+      DNS_HEADER	slip_hdr;
+      char		slip_reply[DNS_HEADERSIZE + DNS_MAXNAMELEN];
+      char		*dest = slip_reply;
+      size_t		slip_len;
+
+      /* Build minimal response with TC bit set */
+      memcpy(&slip_hdr, &t->hdr, sizeof(DNS_HEADER));
+      slip_hdr.qr = 1;      /* This is a response */
+      slip_hdr.tc = 1;      /* Truncated - retry with TCP */
+      slip_hdr.ra = 0;      /* No recursion available in truncated reply */
+      slip_hdr.rcode = DNS_RCODE_NOERROR;
+
+      /* Build the slip reply: ID + header + question */
+      DNS_PUT16(dest, t->id);
+      DNS_PUT(dest, &slip_hdr, SIZE16);
+      DNS_PUT16(dest, t->qdcount);  /* Question count */
+      DNS_PUT16(dest, 0);           /* Answer count = 0 */
+      DNS_PUT16(dest, 0);           /* Authority count = 0 */
+      DNS_PUT16(dest, 0);           /* Additional count = 0 */
+
+      /* Copy original question data */
+      if (t->qdlen && t->qd && t->qdlen <= DNS_MAXNAMELEN) {
+        DNS_PUT(dest, t->qd, t->qdlen);
+      }
+
+      slip_len = dest - slip_reply;
+
+#if DEBUG_ENABLED && DEBUG_UDP
+      DebugX("udp", 1, _("%s: RRL slip (TC) %zu bytes (id %u)"), desctask(t), slip_len, t->id);
+#endif
+
+      rv = sendto(t->fd, slip_reply, slip_len, 0, addr, addrlen);
+      if (rv < 0 && errno != EINTR && errno != EAGAIN && errno != EPERM && errno != EINVAL) {
+        Warn("%s: %s", desctask(t), _("sendto (UDP slip)"));
+      }
+      return (TASK_COMPLETED);
+    }
   }
 	
   rv = sendto(t->fd, t->reply, t->replylen, 0, addr, addrlen);
@@ -165,6 +219,11 @@ udp_tick(TASK *t, void *data) {
 static taskexec_t
 udp_read_message(TASK *t, void *data) {
   taskexec_t	res;
+
+  /* Don't accept new queries during graceful shutdown */
+  if (!accepting_new_queries()) {
+    return TASK_CONTINUE;
+  }
 
   while((res = read_udp_query(t->fd, t->family)) != TASK_CONTINUE) continue;
 

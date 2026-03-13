@@ -19,6 +19,7 @@
 **************************************************************************************************/
 
 #include "mydns.h"
+#include "db_health.h"
 
 /* Make this nonzero to enable debugging for this source file */
 #define	DEBUG_CONF	1
@@ -45,6 +46,16 @@ int		ixfr_gc_enabled = 0;			/* Enable IXFR GC */
 uint32_t	ixfr_gc_interval = 86400;		/* How long between each IXFR GC */
 uint32_t	ixfr_gc_delay=600;			/* After startup delay first GC by this much */
 int		ignore_minimum = 0;			/* Ignore minimum TTL? */
+
+/* Response Rate Limiting (RRL) configuration variables
+ * These are defined here so they can be used by utilities that don't link rrl.c
+ * The actual RRL implementation in rrl.c declares these as extern */
+int		rrl_enabled = 0;			/* Is RRL enabled? */
+uint32_t	rrl_responses_per_second = 5;		/* Rate limit */
+uint32_t	rrl_window = 15;			/* Time window in seconds */
+uint32_t	rrl_slip = 2;				/* Slip ratio */
+int		rrl_ipv4_prefix = 24;			/* IPv4 prefix length */
+int		rrl_ipv6_prefix = 56;			/* IPv6 prefix length */
 
 int		forward_recursive = 0;			/* Forward recursive queries? */
 int		recursion_timeout = 1;
@@ -138,6 +149,13 @@ static CONF defConfig[] = {
   {	"reply-cache-size",	V_("1024"),				N_("Maximum number of elements stored in the reply cache"),			NULL,		0,		NULL	},
   {	"reply-cache-expire",	V_("30"),				N_("Number of seconds after which cached replies expire"),			NULL,		0,		NULL	},
 
+  {	"-",			NULL,					N_("DATABASE RESILIENCE"),							NULL,		0,		NULL	},
+  {	"stale-cache-ttl",	V_("3600"),				N_("Seconds to serve stale cache data when DB unavailable (0=disable)"),	NULL,		0,		NULL	},
+  {	"db-reconnect-base-interval",	V_("1"),			N_("Initial reconnection interval in seconds"),				NULL,		0,		NULL	},
+  {	"db-reconnect-max-interval",	V_("60"),			N_("Maximum reconnection interval in seconds"),					NULL,		0,		NULL	},
+  {	"cache-warm-on-startup",	V_("no"),			N_("Pre-load SOA records into cache on startup"),				NULL,		0,		NULL	},
+  {	"cache-warm-on-reconnect",	V_("yes"),			N_("Pre-load SOA records into cache after DB reconnection"),			NULL,		0,		NULL	},
+
   {	"-",			NULL,					N_("ESOTERICA"),								NULL,		0,		NULL	},
   {	"log",			V_("LOG_DAEMON"),			N_("Facility to use for program output (LOG_*/stdout/stderr)"),			NULL,		0,		NULL	},
   {	"pidfile",		V_("/var/run/"PACKAGE_NAME".pid"),	N_("Path to PID file"),								NULL,		0,		NULL	},
@@ -162,6 +180,21 @@ static CONF defConfig[] = {
   {	"notify-timeout",	V_("60"),				N_("Number of seconds before first retry"),					NULL,		0,		NULL	},
   {	"notify-retries",	V_("5"),				N_("Number of retries before abandoning notify"),				NULL,		0,		NULL	},
   {	"notify-algorithm",	V_("linear"),				N_("Notify retry algorithm one of: linear, exponential, progressive"),		NULL,		0,		NULL	},
+  {	"shutdown-timeout",	V_("30"),				N_("Seconds to wait for in-flight queries during graceful shutdown"),		NULL,		0,		NULL	},
+
+  {	"-",			NULL,					N_("RESPONSE RATE LIMITING (RRL)"),						NULL,		0,		NULL	},
+  {	"rrl-enabled",		V_("no"),				N_("Enable Response Rate Limiting"),						NULL,		0,		NULL	},
+  {	"rrl-responses-per-second",V_("5"),				N_("Maximum responses per second per client network"),				NULL,		0,		NULL	},
+  {	"rrl-window",		V_("15"),				N_("Time window in seconds for rate calculation"),				NULL,		0,		NULL	},
+  {	"rrl-slip",		V_("2"),				N_("Slip ratio (every Nth over-limit gets TC instead of drop)"),		NULL,		0,		NULL	},
+  {	"rrl-ipv4-prefix",	V_("24"),				N_("IPv4 prefix length for client grouping"),					NULL,		0,		NULL	},
+  {	"rrl-ipv6-prefix",	V_("56"),				N_("IPv6 prefix length for client grouping"),					NULL,		0,		NULL	},
+
+  {	"-",			NULL,					N_("HTTP MANAGEMENT SERVER"),							NULL,		0,		NULL	},
+  {	"http-enabled",		V_("no"),				N_("Enable HTTP management server for metrics/health"),				NULL,		0,		NULL	},
+  {	"http-listen",		V_("127.0.0.1"),			N_("Address for HTTP server to listen on"),					NULL,		0,		NULL	},
+  {	"http-port",		V_("9100"),				N_("Port for HTTP server to listen on"),					NULL,		0,		NULL	},
+
   {	"ixfr-enabled",		V_("no"),				N_("Enable IXFR functionality"),						NULL,		0,		NULL	},
   {	"ixfr-gc-enabled",	V_("no"),				N_("Enable IXFR GC functionality"),						NULL,		0,		NULL	},
   {	"ixfr-gc-interval",	V_("86400"),				N_("How often to run GC for IXFR"),						NULL,		0,		NULL	},
@@ -551,6 +584,33 @@ load_config(void) {
   ixfr_gc_enabled = GETBOOL(conf_get(&Conf, "ixfr-gc-enabled", NULL));
   ixfr_gc_interval = atou(conf_get(&Conf, "ixfr-gc-interval", NULL));
   ixfr_gc_delay = atou(conf_get(&Conf, "ixfr-gc-delay", NULL));
+
+  /* Response Rate Limiting (RRL) settings */
+  rrl_enabled = GETBOOL(conf_get(&Conf, "rrl-enabled", NULL));
+  if (rrl_enabled) {
+    rrl_responses_per_second = atou(conf_get(&Conf, "rrl-responses-per-second", NULL));
+    rrl_window = atou(conf_get(&Conf, "rrl-window", NULL));
+    rrl_slip = atou(conf_get(&Conf, "rrl-slip", NULL));
+    rrl_ipv4_prefix = atoi(conf_get(&Conf, "rrl-ipv4-prefix", NULL));
+    rrl_ipv6_prefix = atoi(conf_get(&Conf, "rrl-ipv6-prefix", NULL));
+    Verbose(_("Response Rate Limiting enabled: %u responses/sec, %u sec window, slip=%u"),
+	    rrl_responses_per_second, rrl_window, rrl_slip);
+  }
+
+  /* Database resilience settings */
+  db_stale_cache_ttl = atou(conf_get(&Conf, "stale-cache-ttl", NULL));
+  db_reconnect_base_interval = atou(conf_get(&Conf, "db-reconnect-base-interval", NULL));
+  db_reconnect_max_interval = atou(conf_get(&Conf, "db-reconnect-max-interval", NULL));
+  db_cache_warm_on_startup = GETBOOL(conf_get(&Conf, "cache-warm-on-startup", NULL));
+  db_cache_warm_on_reconnect = GETBOOL(conf_get(&Conf, "cache-warm-on-reconnect", NULL));
+
+  if (db_stale_cache_ttl > 0) {
+    Verbose(_("Database resilience enabled: stale-cache-ttl=%u, reconnect-base=%u, reconnect-max=%u"),
+	    db_stale_cache_ttl, db_reconnect_base_interval, db_reconnect_max_interval);
+  }
+
+  /* Initialize database health tracking */
+  db_health_init();
 
   mydns_rr_extended_data = GETBOOL(conf_get(&Conf, "extended-data-support", NULL));
 

@@ -392,6 +392,11 @@ static taskexec_t
 tcp_read_message(TASK *t, void *data) {
   int		newfd = -1;
 
+  /* Don't accept new TCP connections during graceful shutdown */
+  if (!accepting_new_queries()) {
+    return TASK_CONTINUE;
+  }
+
   while ((newfd = accept_tcp_query(t->fd, t->family)) >= 0) continue;
 
   t->timeout = current_time + task_timeout;

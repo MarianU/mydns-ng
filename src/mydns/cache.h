@@ -58,6 +58,7 @@ typedef struct _cnode								/* A cache node */
 
 	time_t			insert_time;					/* Time record was inserted */
 	time_t			expire;						/* Time after which this node should expire */
+	time_t			db_fetch_time;					/* Time data was fetched from database */
 
 	struct _cnode *next_node;						/* Pointer to next node in bucket */
 	struct _cnode *mruPrev, *mruNext;					/* Pointer to next/prev node in MRU/LRU list */
@@ -111,6 +112,10 @@ extern void *zone_cache_find(TASK *, uint32_t, char *, dns_qtype_t, const char *
 
 extern int  reply_cache_find(TASK *);
 extern void add_reply_to_cache(TASK *);
+
+/* Stale cache lookup for database resilience */
+extern void *zone_cache_find_stale(uint32_t zone, dns_qtype_t type,
+				   const char *name, size_t namelen);
 
 
 #endif /* _CACHE_H */
