@@ -1,0 +1,187 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "mydns-ng.fullname" . }}
+  labels:
+    {{- include "mydns-ng.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      {{- include "mydns-ng.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "mydns-ng.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "mydns-ng.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      terminationGracePeriodSeconds: {{ add .Values.shutdown.timeout 10 }}
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: {{ include "mydns-ng.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: dns-udp
+              containerPort: 53
+              protocol: UDP
+            - name: dns-tcp
+              containerPort: 53
+              protocol: TCP
+            {{- if .Values.metrics.enabled }}
+            - name: metrics
+              containerPort: {{ .Values.metrics.port }}
+              protocol: TCP
+            {{- end }}
+          env:
+            # Database configuration
+            - name: MYDNS_DB_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "mydns-ng.databaseSecretName" . }}
+                  key: host
+            - name: MYDNS_DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "mydns-ng.databaseSecretName" . }}
+                  key: user
+            - name: MYDNS_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "mydns-ng.databaseSecretName" . }}
+                  key: password
+            - name: MYDNS_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "mydns-ng.databaseSecretName" . }}
+                  key: database
+            # Connection pooling
+            - name: MYDNS_DB_POOL_ENABLED
+              value: {{ .Values.database.pool.enabled | quote }}
+            {{- if .Values.database.pool.enabled }}
+            - name: MYDNS_DB_POOL_SIZE
+              value: {{ .Values.database.pool.size | quote }}
+            - name: MYDNS_DB_POOL_MIN
+              value: {{ .Values.database.pool.min | quote }}
+            - name: MYDNS_DB_POOL_ACQUIRE_TIMEOUT
+              value: {{ .Values.database.pool.acquireTimeout | quote }}
+            {{- end }}
+            # EDNS0
+            - name: MYDNS_EDNS_ENABLED
+              value: {{ .Values.dns.edns.enabled | quote }}
+            - name: MYDNS_EDNS_MAX_UDP_SIZE
+              value: {{ .Values.dns.edns.maxUdpSize | quote }}
+            # Cache
+            - name: MYDNS_CACHE_SIZE
+              value: {{ .Values.dns.cache.zoneSize | quote }}
+            - name: MYDNS_CACHE_EXPIRE
+              value: {{ .Values.dns.cache.zoneExpire | quote }}
+            - name: MYDNS_REPLY_CACHE_SIZE
+              value: {{ .Values.dns.cache.replySize | quote }}
+            - name: MYDNS_REPLY_CACHE_EXPIRE
+              value: {{ .Values.dns.cache.replyExpire | quote }}
+            - name: MYDNS_STALE_CACHE_TTL
+              value: {{ .Values.dns.cache.staleTtl | quote }}
+            # RRL
+            - name: MYDNS_RRL_ENABLED
+              value: {{ .Values.rrl.enabled | quote }}
+            {{- if .Values.rrl.enabled }}
+            - name: MYDNS_RRL_RATE
+              value: {{ .Values.rrl.rate | quote }}
+            - name: MYDNS_RRL_WINDOW
+              value: {{ .Values.rrl.window | quote }}
+            - name: MYDNS_RRL_SLIP_RATIO
+              value: {{ .Values.rrl.slipRatio | quote }}
+            - name: MYDNS_RRL_IPV4_PREFIX
+              value: {{ .Values.rrl.ipv4Prefix | quote }}
+            - name: MYDNS_RRL_IPV6_PREFIX
+              value: {{ .Values.rrl.ipv6Prefix | quote }}
+            {{- end }}
+            # Logging
+            - name: MYDNS_LOG_FORMAT
+              value: {{ .Values.logging.format | quote }}
+            - name: MYDNS_LOG_LEVEL
+              value: {{ .Values.logging.level | quote }}
+            - name: MYDNS_QUERY_LOG
+              value: {{ .Values.logging.queryLog | quote }}
+            # Metrics
+            - name: MYDNS_METRICS_ENABLED
+              value: {{ .Values.metrics.enabled | quote }}
+            - name: MYDNS_METRICS_PORT
+              value: {{ .Values.metrics.port | quote }}
+            # Shutdown
+            - name: MYDNS_SHUTDOWN_TIMEOUT
+              value: {{ .Values.shutdown.timeout | quote }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- if .Values.probes.liveness.enabled }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.probes.liveness.httpGet.path }}
+              port: {{ .Values.probes.liveness.httpGet.port }}
+            initialDelaySeconds: {{ .Values.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.liveness.failureThreshold }}
+          {{- end }}
+          {{- if .Values.probes.readiness.enabled }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.probes.readiness.httpGet.path }}
+              port: {{ .Values.probes.readiness.httpGet.port }}
+            initialDelaySeconds: {{ .Values.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.readiness.failureThreshold }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: run
+              mountPath: /var/run
+            {{- with .Values.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: run
+          emptyDir: {}
+        {{- with .Values.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

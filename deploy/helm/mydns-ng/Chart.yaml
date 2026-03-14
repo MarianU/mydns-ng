@@ -1,0 +1,17 @@
+apiVersion: v2
+name: mydns-ng
+description: A Helm chart for MyDNS-NG - SQL-based authoritative DNS server
+type: application
+version: 1.0.0
+appVersion: "1.2.8.31"
+keywords:
+  - dns
+  - authoritative
+  - mysql
+  - postgresql
+  - mydns
+home: https://github.com/deliank/mydns-ng
+sources:
+  - https://github.com/deliank/mydns-ng
+maintainers:
+  - name: MyDNS-NG Contributors

@@ -1,0 +1,201 @@
+# MyDNS-NG Helm Chart Values
+# See README.md for full documentation
+
+nameOverride: ""
+fullnameOverride: ""
+
+# Number of replicas
+replicaCount: 3
+
+image:
+  repository: ghcr.io/marianu/mydns-ng
+  tag: ""  # Defaults to appVersion
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+# Database configuration
+database:
+  # Use existing secret for database credentials
+  # Secret should contain: host, user, password, database
+  existingSecret: ""
+  
+  # Or specify credentials directly (not recommended for production)
+  host: ""
+  user: "mydns"
+  password: ""
+  name: "mydns"
+  
+  # Connection pooling
+  pool:
+    enabled: false
+    size: 10
+    min: 2
+    acquireTimeout: 5
+    validateInterval: 30
+
+# DNS server configuration
+dns:
+  # EDNS0 support
+  edns:
+    enabled: true
+    maxUdpSize: 4096
+  
+  # Cache settings
+  cache:
+    zoneSize: 1024
+    zoneExpire: 60
+    replySize: 1024
+    replyExpire: 30
+    staleTtl: 300
+
+# Response Rate Limiting (DDoS protection)
+rrl:
+  enabled: true
+  rate: 20
+  window: 15
+  slipRatio: 2
+  ipv4Prefix: 24
+  ipv6Prefix: 48
+
+# Logging configuration
+logging:
+  format: json  # text or json
+  level: notice  # debug, info, notice, warning, error
+  queryLog: false
+
+# Metrics and health endpoints
+metrics:
+  enabled: true
+  port: 9153
+  
+  # Prometheus ServiceMonitor
+  serviceMonitor:
+    enabled: false
+    namespace: ""
+    interval: 30s
+    scrapeTimeout: 10s
+    labels: {}
+
+# Graceful shutdown
+shutdown:
+  timeout: 30
+
+# Service configuration
+service:
+  type: ClusterIP
+  
+  dns:
+    port: 53
+  
+  # For NodePort or LoadBalancer
+  nodePort:
+    udp: ""
+    tcp: ""
+  
+  annotations: {}
+  
+  # External traffic policy (Local recommended for source IP preservation)
+  externalTrafficPolicy: Local
+
+# Kubernetes probes
+probes:
+  liveness:
+    enabled: true
+    httpGet:
+      path: /healthz
+      port: metrics
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  
+  readiness:
+    enabled: true
+    httpGet:
+      path: /readyz
+      port: metrics
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+# Resource limits
+resources:
+  limits:
+    cpu: 500m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+# Pod security context
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65534
+  runAsGroup: 65534
+  fsGroup: 65534
+
+# Container security context
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity rules
+affinity: {}
+
+# Pod topology spread constraints
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: topology.kubernetes.io/zone
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/name: mydns-ng
+
+# Pod disruption budget
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+  # maxUnavailable: 1
+
+# Service account
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# Extra environment variables
+extraEnv: []
+# - name: MYDNS_EXTRA_VAR
+#   value: "value"
+
+# Extra volume mounts
+extraVolumeMounts: []
+
+# Extra volumes
+extraVolumes: []
+
+# Pod annotations
+podAnnotations: {}
+
+# Pod labels
+podLabels: {}
+
+# Dynamic DNS sync cronjob (optional)
+ddnsSync:
+  enabled: false
+  schedule: "*/15 * * * *"
+  regions: 3
+  failedJobsHistoryLimit: 3
+  successfulJobsHistoryLimit: 1
+  hostNetwork: true
