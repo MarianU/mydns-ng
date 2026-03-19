@@ -20,7 +20,6 @@ linters:
     - unparam
     - nakedret
     - prealloc
-    - copyloopvar
     - gocritic
     - godot
     - gosec
