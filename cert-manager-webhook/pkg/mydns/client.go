@@ -102,13 +102,13 @@ func (c *DBClient) CreateTXTRecord(ctx context.Context, zoneID int64, name, data
 		if err != nil {
 			return fmt.Errorf("failed to begin transaction: %w", err)
 		}
-		defer tx.Rollback()
+		defer tx.Rollback() //nolint:errcheck // rollback after commit is harmless
 
-		// Check if record already exists (for idempotency)
+		// Check if record already exists (for idempotency).
 		var exists bool
 		checkQuery := "SELECT EXISTS(SELECT 1 FROM rr WHERE zone = ? AND name = ? AND type = 'TXT' AND data = ?)"
-		if err := tx.QueryRowContext(ctx, checkQuery, zoneID, name, data).Scan(&exists); err != nil {
-			return fmt.Errorf("failed to check existing record: %w", err)
+		if scanErr := tx.QueryRowContext(ctx, checkQuery, zoneID, name, data).Scan(&exists); scanErr != nil {
+			return fmt.Errorf("failed to check existing record: %w", scanErr)
 		}
 
 		if exists {
@@ -123,7 +123,10 @@ func (c *DBClient) CreateTXTRecord(ctx context.Context, zoneID int64, name, data
 			return fmt.Errorf("failed to insert TXT record: %w", err)
 		}
 
-		rowsAffected, _ := result.RowsAffected()
+		rowsAffected, rowErr := result.RowsAffected()
+		if rowErr != nil {
+			return fmt.Errorf("failed to get rows affected: %w", rowErr)
+		}
 		klog.V(2).Infof("Inserted TXT record: zone=%d name=%q rows=%d", zoneID, name, rowsAffected)
 
 		// Increment SOA serial
@@ -147,16 +150,19 @@ func (c *DBClient) DeleteTXTRecord(ctx context.Context, zoneID int64, name, data
 		if err != nil {
 			return fmt.Errorf("failed to begin transaction: %w", err)
 		}
-		defer tx.Rollback()
+		defer tx.Rollback() //nolint:errcheck // rollback after commit is harmless
 
-		// Delete the TXT record
+		// Delete the TXT record.
 		deleteQuery := "DELETE FROM rr WHERE zone = ? AND name = ? AND type = 'TXT' AND data = ?"
 		result, err := tx.ExecContext(ctx, deleteQuery, zoneID, name, data)
 		if err != nil {
 			return fmt.Errorf("failed to delete TXT record: %w", err)
 		}
 
-		rowsAffected, _ := result.RowsAffected()
+		rowsAffected, rowErr := result.RowsAffected()
+		if rowErr != nil {
+			return fmt.Errorf("failed to get rows affected: %w", rowErr)
+		}
 		klog.V(2).Infof("Deleted TXT record: zone=%d name=%q rows=%d", zoneID, name, rowsAffected)
 
 		// Only increment serial if we actually deleted something
@@ -182,7 +188,10 @@ func (c *DBClient) incrementSerial(ctx context.Context, tx *sql.Tx, zoneID int64
 		return fmt.Errorf("failed to increment SOA serial: %w", err)
 	}
 
-	rowsAffected, _ := result.RowsAffected()
+	rowsAffected, rowErr := result.RowsAffected()
+	if rowErr != nil {
+		return fmt.Errorf("failed to get SOA rows affected: %w", rowErr)
+	}
 	if rowsAffected == 0 {
 		return fmt.Errorf("no SOA record found for zone ID %d", zoneID)
 	}

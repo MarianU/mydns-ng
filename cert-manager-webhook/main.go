@@ -4,9 +4,9 @@ package main
 import (
 	"os"
 
+	"github.com/cert-manager/cert-manager/pkg/acme/webhook/cmd"
 	"k8s.io/klog/v2"
 
-	"github.com/cert-manager/cert-manager/pkg/acme/webhook/cmd"
 	"github.com/mydns-ng/mydns-acme-webhook/pkg/mydns"
 )
 

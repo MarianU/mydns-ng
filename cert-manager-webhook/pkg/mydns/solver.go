@@ -181,7 +181,7 @@ func loadConfig(cfgJSON *extapi.JSON) (*ProviderConfig, error) {
 }
 
 // extractRecordName extracts the relative record name from the FQDN.
-// For example: "_acme-challenge.www.example.com." with zone "example.com." returns "_acme-challenge.www"
+// For example: "_acme-challenge.www.example.com." with zone "example.com." returns "_acme-challenge.www".
 func extractRecordName(fqdn, zone string) string {
 	// Both should have trailing dots, but handle cases where they don't
 	fqdn = strings.TrimSuffix(fqdn, ".")
