@@ -1,0 +1,14 @@
+# Binaries
+_out/
+health-monitor
+
+# Test assets
+_test/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store

@@ -1,0 +1,104 @@
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  repository: ghcr.io/marianu/mydns-ng/mydns-health-monitor
+  tag: latest
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+replicaCount: 3  # One per zone
+
+healthCheck:
+  interval: 30s
+  failureThreshold: 3
+  successThreshold: 2
+  timeout: 10s
+
+discovery:
+  interval: 15s
+
+peer:
+  timeout: 5s
+
+http:
+  port: 8080
+
+database:
+  existingSecret: ""
+  host: ""
+  port: "3306"
+  user: "mydns_monitor"
+  password: ""
+  name: "mydns"
+
+dryRun: false
+
+# Resource requests and limits
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi
+
+# Pod scheduling options
+nodeSelector: {}
+
+tolerations: []
+
+# Security context for the pod
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+# Security context for the container
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: topology.kubernetes.io/zone
+    whenUnsatisfiable: DoNotSchedule
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/name: mydns-health-monitor
+
+affinity:
+  podAntiAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchLabels:
+            app.kubernetes.io/name: mydns-health-monitor
+        topologyKey: topology.kubernetes.io/zone
+
+metrics:
+  enabled: true
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    scrapeTimeout: 10s
+    labels: {}
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# Service account configuration
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# Pod annotations
+podAnnotations: {}
+
+# Pod labels
+podLabels: {}

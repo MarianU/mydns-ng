@@ -1,0 +1,19 @@
+apiVersion: v2
+name: mydns-health-monitor
+description: A Kubernetes zone health monitor with quorum-based failover for MyDNS-NG
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords:
+  - mydns
+  - health
+  - monitor
+  - failover
+  - dns
+  - quorum
+maintainers:
+  - name: mydns-ng
+    url: https://github.com/mydns-ng
+home: https://github.com/mydns-ng/zone-health-monitor
+sources:
+  - https://github.com/mydns-ng/zone-health-monitor

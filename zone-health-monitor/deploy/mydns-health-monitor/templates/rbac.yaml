@@ -1,0 +1,79 @@
+{{- if .Values.serviceAccount.create }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "mydns-health-monitor.serviceAccountName" . }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "mydns-health-monitor.labels" . | nindent 4 }}
+  {{- with .Values.serviceAccount.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}
+---
+# Grant the health monitor permission to read node information
+# Required for zone detection via node topology labels
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "mydns-health-monitor.fullname" . }}:node-reader
+  labels:
+    {{- include "mydns-health-monitor.labels" . | nindent 4 }}
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - nodes
+    verbs:
+      - get
+      - list
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "mydns-health-monitor.fullname" . }}:node-reader
+  labels:
+    {{- include "mydns-health-monitor.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "mydns-health-monitor.fullname" . }}:node-reader
+subjects:
+  - apiGroup: ""
+    kind: ServiceAccount
+    name: {{ include "mydns-health-monitor.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+# Grant the health monitor permission to read secrets
+# Required for reading database credentials
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "mydns-health-monitor.fullname" . }}:secret-reader
+  labels:
+    {{- include "mydns-health-monitor.labels" . | nindent 4 }}
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "mydns-health-monitor.fullname" . }}:secret-reader
+  labels:
+    {{- include "mydns-health-monitor.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "mydns-health-monitor.fullname" . }}:secret-reader
+subjects:
+  - apiGroup: ""
+    kind: ServiceAccount
+    name: {{ include "mydns-health-monitor.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
