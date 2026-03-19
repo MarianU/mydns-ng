@@ -10,37 +10,24 @@ import (
 
 // Config holds all monitor configuration.
 type Config struct {
-	// Identity
-	MyZone  string
-	PodName string
-	PodIP   string
-
-	// Peer discovery
+	DBHost            string
+	DBUser            string
+	Version           string
+	DBName            string
+	MyZone            string
+	PodName           string
+	PodIP             string
 	PeerServiceFQDN   string
+	DBPassword        string
+	DBPort            string
 	DiscoveryInterval time.Duration
-
-	// Health checking
-	CheckInterval    time.Duration
-	CheckTimeout     time.Duration
-	FailureThreshold int
-	SuccessThreshold int
-
-	// Peer communication
-	HTTPPort    int
-	PeerTimeout time.Duration
-
-	// Database
-	DBHost     string
-	DBPort     string
-	DBUser     string
-	DBPassword string
-	DBName     string
-
-	// Feature flags
-	DryRun bool
-
-	// Version (set at build time)
-	Version string
+	CheckInterval     time.Duration
+	PeerTimeout       time.Duration
+	CheckTimeout      time.Duration
+	HTTPPort          int
+	FailureThreshold  int
+	SuccessThreshold  int
+	DryRun            bool
 }
 
 // LoadConfigFromEnv loads configuration from environment variables.

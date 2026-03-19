@@ -14,16 +14,16 @@ type MonitorIdentity struct {
 
 // ZoneObservation represents a monitor's health observation of a single zone.
 type ZoneObservation struct {
+	LastCheck            time.Time `json:"lastCheck"`
 	Healthy              bool      `json:"healthy"`
 	ReadyNodes           int       `json:"readyNodes"`
 	TotalNodes           int       `json:"totalNodes"`
 	ConsecutiveFailures  int       `json:"consecutiveFailures"`
 	ConsecutiveSuccesses int       `json:"consecutiveSuccesses"`
-	LastCheck            time.Time `json:"lastCheck"`
 }
 
 // ObservationReport is the full observation payload shared between monitors.
 type ObservationReport struct {
+	Observations map[string]ZoneObservation `json:"observations"`
 	Monitor      MonitorIdentity            `json:"monitor"`
-	Observations map[string]ZoneObservation `json:"observations"` // key: zone name
 }

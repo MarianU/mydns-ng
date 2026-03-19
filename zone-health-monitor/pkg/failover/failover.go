@@ -14,11 +14,9 @@ import (
 
 // Manager handles failover actions based on quorum consensus results.
 type Manager struct {
-	db     *mydns.DBClient
-	dryRun bool
-
-	// Track which zones are currently in failover state to avoid redundant DB operations.
+	db          *mydns.DBClient
 	failedZones map[string]time.Time // zone name → time of failover
+	dryRun      bool
 }
 
 // NewManager creates a new failover manager.

@@ -28,7 +28,7 @@ func NewClient(httpPort int, timeout time.Duration) *Client {
 func (c *Client) FetchObservations(ctx context.Context, peerIP string) (*ObservationReport, error) {
 	url := fmt.Sprintf("http://%s:%d/api/v1/observations", peerIP, c.httpPort)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -55,9 +55,9 @@ func (c *Client) FetchObservations(ctx context.Context, peerIP string) (*Observa
 
 // FetchAllObservations fetches observations from all given peer IPs.
 // Returns successfully fetched reports and the count of failures.
-func (c *Client) FetchAllObservations(ctx context.Context, peerIPs []string) ([]ObservationReport, int) {
-	var reports []ObservationReport
-	failures := 0
+func (c *Client) FetchAllObservations(ctx context.Context, peerIPs []string) (reports []ObservationReport, failures int) {
+	reports = make([]ObservationReport, 0, len(peerIPs))
+	failures = 0
 
 	for _, ip := range peerIPs {
 		report, err := c.FetchObservations(ctx, ip)

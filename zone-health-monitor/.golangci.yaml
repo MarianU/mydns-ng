@@ -20,7 +20,7 @@ linters:
     - unparam
     - nakedret
     - prealloc
-    - exportloopref
+    - copyloopvar
     - gocritic
     - godot
     - gosec
@@ -32,7 +32,6 @@ linters-settings:
     check-blank: true
 
   govet:
-    check-shadowing: true
     enable-all: true
 
   gofmt:

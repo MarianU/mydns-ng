@@ -208,19 +208,28 @@ func TestCheckZone_Hysteresis(t *testing.T) {
 	checker.kubeClient = clientUnhealthy
 
 	// Failure 1.
-	zh, _ = checker.CheckZone(ctx, "zone-a")
+	zh, err = checker.CheckZone(ctx, "zone-a")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if !zh.Healthy {
 		t.Error("expected healthy after 1 failure (post-recovery)")
 	}
 
 	// Failure 2.
-	zh, _ = checker.CheckZone(ctx, "zone-a")
+	zh, err = checker.CheckZone(ctx, "zone-a")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if !zh.Healthy {
 		t.Error("expected healthy after 2 failures (post-recovery)")
 	}
 
 	// Failure 3: now should flip to unhealthy.
-	zh, _ = checker.CheckZone(ctx, "zone-a")
+	zh, err = checker.CheckZone(ctx, "zone-a")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if zh.Healthy {
 		t.Error("expected unhealthy after 3 consecutive failures")
 	}
@@ -229,13 +238,19 @@ func TestCheckZone_Hysteresis(t *testing.T) {
 	checker.kubeClient = clientHealthy
 
 	// Success 1: still unhealthy (threshold=2).
-	zh, _ = checker.CheckZone(ctx, "zone-a")
+	zh, err = checker.CheckZone(ctx, "zone-a")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if zh.Healthy {
 		t.Error("expected zone to remain unhealthy after 1 success")
 	}
 
 	// Success 2: now healthy.
-	zh, _ = checker.CheckZone(ctx, "zone-a")
+	zh, err = checker.CheckZone(ctx, "zone-a")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if !zh.Healthy {
 		t.Error("expected zone to become healthy after 2 consecutive successes")
 	}

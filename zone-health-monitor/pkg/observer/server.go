@@ -11,17 +11,17 @@ import (
 
 // Server exposes HTTP endpoints for health monitoring.
 type Server struct {
-	identity     MonitorIdentity
 	observations map[string]ZoneObservation
+	dbHealthy    func() bool
+	hasPeers     func() bool
+	identity     MonitorIdentity
 	mu           sync.RWMutex
-	dbHealthy    func() bool // callback to check DB health for readyz
-	hasPeers     func() bool // callback to check if peers are reachable for readyz
 }
 
 // NewServer creates a new observation HTTP server.
-func NewServer(identity MonitorIdentity, dbHealthy, hasPeers func() bool) *Server {
+func NewServer(identity *MonitorIdentity, dbHealthy, hasPeers func() bool) *Server {
 	return &Server{
-		identity:     identity,
+		identity:     *identity,
 		observations: make(map[string]ZoneObservation),
 		dbHealthy:    dbHealthy,
 		hasPeers:     hasPeers,

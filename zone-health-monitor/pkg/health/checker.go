@@ -15,26 +15,24 @@ import (
 
 // ZoneHealth represents the observed health of a single zone.
 type ZoneHealth struct {
+	LastCheck            time.Time
+	LastTransition       time.Time
 	Zone                 string
-	Healthy              bool
 	ReadyNodes           int
 	TotalNodes           int
 	ConsecutiveFailures  int
 	ConsecutiveSuccesses int
-	LastCheck            time.Time
-	LastTransition       time.Time
+	Healthy              bool
 }
 
 // Checker performs health checks against Kubernetes zones by inspecting node Ready conditions.
 type Checker struct {
 	kubeClient       kubernetes.Interface
+	state            map[string]*ZoneHealth
 	myZone           string
+	mu               sync.RWMutex
 	failureThreshold int
 	successThreshold int
-
-	// state tracks health per zone across check cycles.
-	state map[string]*ZoneHealth
-	mu    sync.RWMutex
 }
 
 // NewChecker creates a new health checker.

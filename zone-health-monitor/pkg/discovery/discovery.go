@@ -17,21 +17,20 @@ import (
 
 // Peer represents a discovered health monitor peer.
 type Peer struct {
+	LastSeen time.Time
 	IP       string
 	Zone     string
-	LastSeen time.Time
 	Healthy  bool
 }
 
 // Discovery manages peer discovery via headless Service DNS.
 type Discovery struct {
-	serviceFQDN string
-	httpPort    int
-	myPodIP     string
 	httpClient  *http.Client
-
-	peers map[string]*Peer // key: IP
-	mu    sync.RWMutex
+	peers       map[string]*Peer // key: IP
+	serviceFQDN string
+	myPodIP     string
+	mu          sync.RWMutex
+	httpPort    int
 }
 
 // NewDiscovery creates a new peer discovery manager.
@@ -184,7 +183,7 @@ func (d *Discovery) HasReachablePeers() bool {
 func (d *Discovery) fetchIdentity(ctx context.Context, ip string) (*observer.MonitorIdentity, error) {
 	url := fmt.Sprintf("http://%s:%d/api/v1/identity", ip, d.httpPort)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create identity request for %s: %w", ip, err)
 	}

@@ -103,7 +103,11 @@ func (c *DBClient) DeactivateZoneRecords(ctx context.Context, zone string) (int6
 			return fmt.Errorf("failed to deactivate zone records: %w", err)
 		}
 
-		affected, _ = result.RowsAffected()
+		var rowErr error
+		affected, rowErr = result.RowsAffected()
+		if rowErr != nil {
+			return fmt.Errorf("failed to get rows affected: %w", rowErr)
+		}
 
 		// Increment SOA serial for each affected DNS zone.
 		if err := c.incrementSerials(ctx, tx, soaZoneIDs); err != nil {
@@ -172,7 +176,11 @@ func (c *DBClient) ReactivateZoneRecords(ctx context.Context, zone string) (int6
 			return fmt.Errorf("failed to reactivate zone records: %w", err)
 		}
 
-		affected, _ = result.RowsAffected()
+		var rowErr error
+		affected, rowErr = result.RowsAffected()
+		if rowErr != nil {
+			return fmt.Errorf("failed to get rows affected: %w", rowErr)
+		}
 
 		// Increment SOA serial for each affected DNS zone.
 		if err := c.incrementSerials(ctx, tx, soaZoneIDs); err != nil {
@@ -219,45 +227,44 @@ func (c *DBClient) GetManagedZones(ctx context.Context) ([]string, error) {
 }
 
 // scanRecordRows scans rows from a record query, closes the rows, and returns IDs and SOA zone IDs.
-func scanRecordRows(rows *sql.Rows) ([]int64, map[int64]struct{}, error) {
+func scanRecordRows(rows *sql.Rows) (recordIDs []int64, soaZoneIDs map[int64]struct{}, err error) {
 	defer func() {
 		_ = rows.Close()
 	}()
 
-	var recordIDs []int64
-	soaZoneIDs := make(map[int64]struct{})
+	soaZoneIDs = make(map[int64]struct{})
 
 	for rows.Next() {
 		var rrID, soaZoneID int64
-		if err := rows.Scan(&rrID, &soaZoneID); err != nil {
-			return nil, nil, fmt.Errorf("failed to scan record row: %w", err)
+		if scanErr := rows.Scan(&rrID, &soaZoneID); scanErr != nil {
+			return nil, nil, fmt.Errorf("failed to scan record row: %w", scanErr)
 		}
 		recordIDs = append(recordIDs, rrID)
 		soaZoneIDs[soaZoneID] = struct{}{}
 	}
-	if err := rows.Err(); err != nil {
-		return nil, nil, fmt.Errorf("failed to iterate record rows: %w", err)
+	if rowErr := rows.Err(); rowErr != nil {
+		return nil, nil, fmt.Errorf("failed to iterate record rows: %w", rowErr)
 	}
 
 	return recordIDs, soaZoneIDs, nil
 }
 
 // scanZoneRows scans rows from a zone query, closes the rows, and returns zone names.
-func scanZoneRows(rows *sql.Rows) ([]string, error) {
+func scanZoneRows(rows *sql.Rows) (zones []string, err error) {
 	defer func() {
 		_ = rows.Close()
 	}()
 
-	var zones []string
+	zones = make([]string, 0)
 	for rows.Next() {
 		var zone string
-		if err := rows.Scan(&zone); err != nil {
-			return nil, fmt.Errorf("failed to scan zone row: %w", err)
+		if scanErr := rows.Scan(&zone); scanErr != nil {
+			return nil, fmt.Errorf("failed to scan zone row: %w", scanErr)
 		}
 		zones = append(zones, zone)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("failed to iterate zone rows: %w", err)
+	if rowErr := rows.Err(); rowErr != nil {
+		return nil, fmt.Errorf("failed to iterate zone rows: %w", rowErr)
 	}
 
 	return zones, nil
@@ -271,7 +278,10 @@ func (c *DBClient) incrementSerials(ctx context.Context, tx *sql.Tx, soaZoneIDs 
 			return fmt.Errorf("failed to increment SOA serial: %w", err)
 		}
 
-		rowsAffected, _ := result.RowsAffected()
+		rowsAffected, rowErr := result.RowsAffected()
+		if rowErr != nil {
+			return fmt.Errorf("failed to get rows affected for SOA serial: %w", rowErr)
+		}
 		if rowsAffected == 0 {
 			return fmt.Errorf("no SOA record found for zone ID %d", zoneID)
 		}

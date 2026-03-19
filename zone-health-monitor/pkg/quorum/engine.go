@@ -11,13 +11,13 @@ import (
 
 // ConsensusResult represents the quorum decision for a single zone.
 type ConsensusResult struct {
-	Zone            string
-	Healthy         bool
-	Decided         bool     // true if quorum was reached
-	UnhealthyVoters []string // zone names of monitors voting unhealthy
-	HealthyVoters   []string // zone names of monitors voting healthy
-	TotalVoters     int
 	Timestamp       time.Time
+	Zone            string
+	UnhealthyVoters []string
+	HealthyVoters   []string
+	TotalVoters     int
+	Healthy         bool
+	Decided         bool
 }
 
 // Engine calculates quorum consensus from collected observations.
@@ -30,14 +30,14 @@ func NewEngine() *Engine {
 
 // voter represents a single monitor's zone and observations for consensus calculation.
 type voter struct {
-	zone         string
 	observations map[string]observer.ZoneObservation
+	zone         string
 }
 
 // CalculateConsensus determines consensus for each zone based on observations from all monitors.
-// myZone is this monitor's zone (for self-exclusion).
-// myObservations is this monitor's view. peerReports are observations from other monitors.
-// isolated indicates whether this monitor can reach any peers.
+// MyZone is this monitor's zone (for self-exclusion).
+// MyObservations is this monitor's view. PeerReports are observations from other monitors.
+// Isolated indicates whether this monitor can reach any peers.
 //
 // Rules:
 //  1. If isolated (can't reach ANY peer), return empty map (no actions).
@@ -111,19 +111,20 @@ func (e *Engine) CalculateConsensus(
 			Timestamp:       now,
 		}
 
-		if totalVoters == 0 {
+		switch {
+		case totalVoters == 0:
 			// No eligible voters with observations for this zone.
 			result.Decided = false
 			result.Healthy = false
-		} else if len(unhealthyVoters) > totalVoters/2 {
+		case len(unhealthyVoters) > totalVoters/2:
 			// Strict majority unhealthy.
 			result.Decided = true
 			result.Healthy = false
-		} else if len(healthyVoters) > totalVoters/2 {
+		case len(healthyVoters) > totalVoters/2:
 			// Strict majority healthy.
 			result.Decided = true
 			result.Healthy = true
-		} else {
+		default:
 			// No majority either way → undecided.
 			result.Decided = false
 			result.Healthy = false

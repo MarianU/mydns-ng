@@ -81,7 +81,7 @@ func New(cfg *Config) (*Monitor, error) {
 	}
 
 	// Create observer server with health check callbacks.
-	m.obsServer = observer.NewServer(identity,
+	m.obsServer = observer.NewServer(&identity,
 		func() bool { return dbClient.Ping() },
 		func() bool { return disc.HasReachablePeers() },
 	)
@@ -89,12 +89,13 @@ func New(cfg *Config) (*Monitor, error) {
 	return m, nil
 }
 
-// Run starts the monitor and blocks until the context is cancelled.
+// Run starts the monitor and blocks until the context is canceled.
 func (m *Monitor) Run(ctx context.Context) error {
 	// 1. Start HTTP server in goroutine.
 	httpServer := &http.Server{
-		Addr:    fmt.Sprintf(":%d", m.cfg.HTTPPort),
-		Handler: m.obsServer.Handler(),
+		Addr:              fmt.Sprintf(":%d", m.cfg.HTTPPort),
+		Handler:           m.obsServer.Handler(),
+		ReadHeaderTimeout: 10 * time.Second,
 	}
 	go func() {
 		klog.Infof("Starting HTTP server on :%d", m.cfg.HTTPPort)
@@ -116,11 +117,12 @@ func (m *Monitor) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			klog.Info("Shutting down monitor")
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			if err := httpServer.Shutdown(shutdownCtx); err != nil {
+			err := httpServer.Shutdown(shutdownCtx)
+			cancel()
+			if err != nil {
 				klog.Errorf("HTTP server shutdown error: %v", err)
 			}
-			m.dbClient.Close()
+			_ = m.dbClient.Close()
 			return nil
 		case <-ticker.C:
 			if err := m.checkCycle(ctx); err != nil {
