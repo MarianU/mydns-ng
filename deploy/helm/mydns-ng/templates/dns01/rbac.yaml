@@ -1,0 +1,109 @@
+{{- if .Values.dns01.enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "mydns-ng.webhookServiceAccount" . }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "mydns-ng.labels" . | nindent 4 }}
+---
+# Grant the webhook permission to read the ConfigMap containing the Kubernetes
+# apiserver's requestheader-ca-certificate (created by the apiserver).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "mydns-ng.webhookFullname" . }}:webhook-authentication-reader
+  namespace: kube-system
+  labels:
+    {{- include "mydns-ng.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: extension-apiserver-authentication-reader
+subjects:
+  - apiGroup: ""
+    kind: ServiceAccount
+    name: {{ include "mydns-ng.webhookServiceAccount" . }}
+    namespace: {{ .Release.Namespace }}
+---
+# apiserver gets auth-delegator to delegate auth decisions to the core apiserver
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "mydns-ng.webhookFullname" . }}:auth-delegator
+  labels:
+    {{- include "mydns-ng.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:auth-delegator
+subjects:
+  - apiGroup: ""
+    kind: ServiceAccount
+    name: {{ include "mydns-ng.webhookServiceAccount" . }}
+    namespace: {{ .Release.Namespace }}
+---
+# Grant cert-manager permission to validate using our apiserver
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "mydns-ng.webhookFullname" . }}:domain-solver
+  labels:
+    {{- include "mydns-ng.labels" . | nindent 4 }}
+rules:
+  - apiGroups:
+      - {{ .Values.dns01.groupName }}
+    resources:
+      - '*'
+    verbs:
+      - 'create'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "mydns-ng.webhookFullname" . }}:domain-solver
+  labels:
+    {{- include "mydns-ng.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "mydns-ng.webhookFullname" . }}:domain-solver
+subjects:
+  - apiGroup: ""
+    kind: ServiceAccount
+    name: {{ .Values.dns01.certManager.serviceAccountName }}
+    namespace: {{ .Values.dns01.certManager.namespace }}
+---
+# Grant the webhook permission to read secrets (DB credentials) in all namespaces
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "mydns-ng.webhookFullname" . }}:secret-reader
+  labels:
+    {{- include "mydns-ng.labels" . | nindent 4 }}
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - get
+      - list
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "mydns-ng.webhookFullname" . }}:secret-reader
+  labels:
+    {{- include "mydns-ng.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "mydns-ng.webhookFullname" . }}:secret-reader
+subjects:
+  - apiGroup: ""
+    kind: ServiceAccount
+    name: {{ include "mydns-ng.webhookServiceAccount" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

@@ -1,0 +1,19 @@
+{{- if .Values.dns01.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "mydns-ng.webhookFullname" . }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "mydns-ng.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.dns01.service.type }}
+  ports:
+    - port: {{ .Values.dns01.service.port }}
+      targetPort: https
+      protocol: TCP
+      name: https
+  selector:
+    {{- include "mydns-ng.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: dns01-webhook
+{{- end }}

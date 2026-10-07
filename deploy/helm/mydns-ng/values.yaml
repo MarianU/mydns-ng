@@ -19,13 +19,13 @@ database:
   # Use existing secret for database credentials
   # Secret should contain: host, user, password, database
   existingSecret: ""
-  
+
   # Or specify credentials directly (not recommended for production)
   host: ""
   user: "mydns"
   password: ""
   name: "mydns"
-  
+
   # Connection pooling
   pool:
     enabled: false
@@ -40,7 +40,7 @@ dns:
   edns:
     enabled: true
     maxUdpSize: 4096
-  
+
   # Cache settings
   cache:
     zoneSize: 1024
@@ -68,7 +68,7 @@ logging:
 metrics:
   enabled: true
   port: 9153
-  
+
   # Prometheus ServiceMonitor
   serviceMonitor:
     enabled: false
@@ -84,17 +84,17 @@ shutdown:
 # Service configuration
 service:
   type: ClusterIP
-  
+
   dns:
     port: 53
-  
+
   # For NodePort or LoadBalancer
   nodePort:
     udp: ""
     tcp: ""
-  
+
   annotations: {}
-  
+
   # External traffic policy (Local recommended for source IP preservation)
   externalTrafficPolicy: Local
 
@@ -109,7 +109,7 @@ probes:
     periodSeconds: 10
     timeoutSeconds: 5
     failureThreshold: 3
-  
+
   readiness:
     enabled: true
     httpGet:
@@ -199,3 +199,101 @@ ddnsSync:
   failedJobsHistoryLimit: 3
   successfulJobsHistoryLimit: 1
   hostNetwork: true
+
+# DNS-01 ACME webhook (cert-manager solver) merged into this chart.
+# When enabled, deploys the mydns-acme-webhook as a separate Deployment in
+# the same release/namespace, using the same combined image (the webhook
+# binary is baked into the mydns image).
+dns01:
+  enabled: false
+
+  # API group the webhook serves (must match the webhook ClusterIssuer
+  # solver groupName and be unique cluster-wide as an APIService)
+  groupName: dns01.mydns-ng
+  solverName: mydns
+
+  # The webhook binary path inside the combined image
+  binaryPath: /usr/local/bin/webhook
+
+  # Register the K8s APIService (v1alpha1.<groupName>). Disable when you
+  # register the APIService yourself (e.g. in an Argo meta chart).
+  registerAPIService: true
+
+  # cert-manager service account that must be granted domain-solver access
+  certManager:
+    namespace: ingress
+    serviceAccountName: cert-manager
+
+  # Webhook container image. Empty by default -> reuse the main mydns image
+  # (which now contains the webhook binary).
+  image:
+    repository: ""
+    tag: ""
+    pullPolicy: ""
+
+  replicaCount: 1
+
+  service:
+    type: ClusterIP
+    port: 443
+
+  # Database credentials the webhook uses to insert/remove ACME challenge
+  # TXT records into the mydns schema. The webhook reads these from a
+  # Kubernetes Secret at runtime (secret-reader RBAC) referenced by the
+  # ClusterIssuer dbSecretRef, so this chart only needs to ensure the Secret
+  # exists in the release namespace when an existingSecret is not supplied.
+  db:
+    # Name of an existing Secret containing host, port, user, password,
+    # database keys. If empty, the chart creates one from the values below.
+    existingSecret: ""
+    host: ""
+    port: "3306"
+    user: "mydns_webhook"
+    password: ""
+    database: "mydns"
+
+  # Resource requests/limits for the webhook Deployment
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+  # Liveness and readiness probe tuning
+  livenessProbe:
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 5
+
+  readinessProbe:
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 3
+
+  # Pod scheduling options
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+  # Pod security context for the webhook
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    fsGroup: 1000
+
+  # Container security context for the webhook
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+        - ALL
+
+  # Optional: specify image pull secrets for the webhook Deployment
+  imagePullSecrets: []
+
+  # Pod annotations/labels
+  podAnnotations: {}
+  podLabels: {}

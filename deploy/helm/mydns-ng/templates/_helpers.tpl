@@ -77,3 +77,56 @@ Database secret name
 {{- include "mydns-ng.fullname" . }}-db
 {{- end }}
 {{- end }}
+
+{{/*
+Fully qualified name of the DNS-01 webhook deployment/service.
+*/}}
+{{- define "mydns-ng.webhookFullname" -}}
+{{- printf "%s-webhook" (include "mydns-ng.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{/*
+Webhook container image (defaults to main mydns image which contains it).
+*/}}
+{{- define "mydns-ng.webhookImage" -}}
+{{- if .Values.dns01.image.repository -}}
+{{- $tag := default .Chart.AppVersion .Values.dns01.image.tag -}}
+{{- printf "%s:%s" .Values.dns01.image.repository $tag -}}
+{{- else -}}
+{{- include "mydns-ng.image" . -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Webhook service account name.
+*/}}
+{{- define "mydns-ng.webhookServiceAccount" -}}
+{{- printf "%s-webhook" (include "mydns-ng.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{/*
+Webhook DB credentials secret name.
+*/}}
+{{- define "mydns-ng.webhookDbSecret" -}}
+{{- if .Values.dns01.db.existingSecret -}}
+{{- .Values.dns01.db.existingSecret -}}
+{{- else -}}
+{{- printf "%s-webhook-db" (include "mydns-ng.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Names of the webhook PKI resources.
+*/}}
+{{- define "mydns-ng.webhookSelfSignedIssuer" -}}
+{{ printf "%s-webhook-selfsign" (include "mydns-ng.fullname" .) }}
+{{- end -}}
+{{- define "mydns-ng.webhookRootCAIssuer" -}}
+{{ printf "%s-webhook-ca" (include "mydns-ng.fullname" .) }}
+{{- end -}}
+{{- define "mydns-ng.webhookRootCACertificate" -}}
+{{ printf "%s-webhook-ca" (include "mydns-ng.fullname" .) }}
+{{- end -}}
+{{- define "mydns-ng.webhookServingCertificate" -}}
+{{ printf "%s-webhook-tls" (include "mydns-ng.fullname" .) }}
+{{- end -}}

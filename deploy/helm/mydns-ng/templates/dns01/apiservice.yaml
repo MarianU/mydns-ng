@@ -1,0 +1,18 @@
+{{- if and .Values.dns01.enabled .Values.dns01.registerAPIService }}
+apiVersion: apiregistration.k8s.io/v1
+kind: APIService
+metadata:
+  name: v1alpha1.{{ .Values.dns01.groupName }}
+  labels:
+    {{- include "mydns-ng.labels" . | nindent 4 }}
+  annotations:
+    cert-manager.io/inject-ca-from: "{{ .Release.Namespace }}/{{ include "mydns-ng.webhookServingCertificate" . }}"
+spec:
+  group: {{ .Values.dns01.groupName }}
+  groupPriorityMinimum: 1000
+  versionPriority: 15
+  service:
+    name: {{ include "mydns-ng.webhookFullname" . }}
+    namespace: {{ .Release.Namespace }}
+  version: v1alpha1
+{{- end }}

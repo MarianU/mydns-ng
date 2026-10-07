@@ -1,0 +1,60 @@
+{{- if .Values.dns01.enabled }}
+---
+# Create a selfsigned Issuer to create a root CA certificate for signing the
+# webhook serving certificate
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ include "mydns-ng.webhookSelfSignedIssuer" . }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "mydns-ng.labels" . | nindent 4 }}
+spec:
+  selfSigned: {}
+---
+# Generate a CA Certificate used to sign certificates for the webhook
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "mydns-ng.webhookRootCACertificate" . }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "mydns-ng.labels" . | nindent 4 }}
+spec:
+  secretName: {{ include "mydns-ng.webhookRootCACertificate" . }}
+  duration: 43800h0m0s # 5y
+  issuerRef:
+    name: {{ include "mydns-ng.webhookSelfSignedIssuer" . }}
+  commonName: "ca.mydns-webhook.cert-manager"
+  isCA: true
+---
+# Create an Issuer that uses the generated CA to issue certs
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ include "mydns-ng.webhookRootCAIssuer" . }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "mydns-ng.labels" . | nindent 4 }}
+spec:
+  ca:
+    secretName: {{ include "mydns-ng.webhookRootCACertificate" . }}
+---
+# Generate a serving certificate for the webhook to use
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "mydns-ng.webhookServingCertificate" . }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "mydns-ng.labels" . | nindent 4 }}
+spec:
+  secretName: {{ include "mydns-ng.webhookServingCertificate" . }}
+  duration: 8760h0m0s # 1y
+  issuerRef:
+    name: {{ include "mydns-ng.webhookRootCAIssuer" . }}
+  dnsNames:
+    - {{ include "mydns-ng.webhookFullname" . }}
+    - {{ include "mydns-ng.webhookFullname" . }}.{{ .Release.Namespace }}
+    - {{ include "mydns-ng.webhookFullname" . }}.{{ .Release.Namespace }}.svc
+{{- end }}

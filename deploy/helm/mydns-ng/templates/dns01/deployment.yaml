@@ -1,0 +1,97 @@
+{{- if .Values.dns01.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "mydns-ng.webhookFullname" . }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "mydns-ng.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.dns01.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "mydns-ng.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: dns01-webhook
+  template:
+    metadata:
+      labels:
+        {{- include "mydns-ng.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: dns01-webhook
+        {{- with .Values.dns01.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.dns01.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with .Values.dns01.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "mydns-ng.webhookServiceAccount" . }}
+      {{- with .Values.dns01.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: webhook
+          image: {{ include "mydns-ng.webhookImage" . }}
+          imagePullPolicy: {{ .Values.dns01.image.pullPolicy | default .Values.image.pullPolicy }}
+          command:
+            - "{{ .Values.dns01.binaryPath }}"
+          args:
+            - --tls-cert-file=/tls/tls.crt
+            - --tls-private-key-file=/tls/tls.key
+          env:
+            - name: GROUP_NAME
+              value: {{ .Values.dns01.groupName | quote }}
+          ports:
+            - name: https
+              containerPort: {{ .Values.dns01.service.port }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              scheme: HTTPS
+              path: /healthz
+              port: https
+            initialDelaySeconds: {{ .Values.dns01.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.dns01.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.dns01.livenessProbe.timeoutSeconds }}
+          readinessProbe:
+            httpGet:
+              scheme: HTTPS
+              path: /healthz
+              port: https
+            initialDelaySeconds: {{ .Values.dns01.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.dns01.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.dns01.readinessProbe.timeoutSeconds }}
+          {{- with .Values.dns01.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: certs
+              mountPath: /tls
+              readOnly: true
+          {{- with .Values.dns01.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: certs
+          secret:
+            secretName: {{ include "mydns-ng.webhookServingCertificate" . }}
+      {{- with .Values.dns01.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.dns01.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.dns01.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
