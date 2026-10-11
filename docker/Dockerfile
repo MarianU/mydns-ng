@@ -63,6 +63,7 @@ RUN apk --no-cache add \
         mariadb-connector-c \
         mariadb-client \
         ca-certificates \
+        curl \
     && adduser -D -H -u 1000 webhook \
     && mkdir -p /app/etc /app/bin /var/run/mydns
 
