@@ -8,31 +8,31 @@ fullnameOverride: ""
 replicaCount: 3
 
 image:
-  repository: ghcr.io/marianu/mydns-ng
+  # Combined mydns server + DNS-01 webhook image (private registry)
+  repository: ghcr.io/marianu/mydns
   tag: ""  # Defaults to appVersion
   pullPolicy: IfNotPresent
 
-imagePullSecrets: []
+imagePullSecrets:
+  - name: ghcr-pull-secret
+
+# Server termination grace period (seconds)
+terminationGracePeriodSeconds: 60
 
 # Database configuration
 database:
-  # Use existing secret for database credentials
-  # Secret should contain: host, user, password, database
+  # Use existing secret for database credentials.
+  # Secret must contain keys: host, user, pass, database, domainCheck.
+  # If empty, a Secret is created from the values below
+  # (named <fullname>-secret).
   existingSecret: ""
 
   # Or specify credentials directly (not recommended for production)
   host: ""
-  user: "mydns"
-  password: ""
+  user: ""
+  pass: ""
   name: "mydns"
-
-  # Connection pooling
-  pool:
-    enabled: false
-    size: 10
-    min: 2
-    acquireTimeout: 5
-    validateInterval: 30
+  domainCheck: ""
 
 # DNS server configuration
 dns:
@@ -66,7 +66,7 @@ logging:
 
 # Metrics and health endpoints
 metrics:
-  enabled: true
+  enabled: false
   port: 9153
 
   # Prometheus ServiceMonitor
@@ -83,63 +83,53 @@ shutdown:
 
 # Service configuration
 service:
-  type: ClusterIP
+  type: NodePort
+  annotations: {}
 
   dns:
     port: 53
 
-  # For NodePort or LoadBalancer
+  # For NodePort: UDP/TCP node ports
   nodePort:
-    udp: ""
-    tcp: ""
-
-  annotations: {}
+    udp: "32053"
+    tcp: "32053"
 
   # External traffic policy (Local recommended for source IP preservation)
   externalTrafficPolicy: Local
 
+  # Session affinity for the DNS service
+  sessionAffinity: ClientIP
+
 # Kubernetes probes
 probes:
-  liveness:
-    enabled: true
-    httpGet:
-      path: /healthz
-      port: metrics
-    initialDelaySeconds: 10
-    periodSeconds: 10
-    timeoutSeconds: 5
-    failureThreshold: 3
-
+  # "exec" (runs /app/bin/healthcheck.sh) or "httpGet" (metrics /readyz)
   readiness:
-    enabled: true
+    type: exec
+    execCommand: /app/bin/healthcheck.sh
+    initialDelaySeconds: 60
+    periodSeconds: 10
+    timeoutSeconds: 1
+    successThreshold: 1
+    failureThreshold: 5
     httpGet:
       path: /readyz
       port: metrics
-    initialDelaySeconds: 5
-    periodSeconds: 5
-    timeoutSeconds: 3
-    failureThreshold: 3
 
 # Resource limits
 resources:
   limits:
-    cpu: 500m
-    memory: 256Mi
+    cpu: 400m
+    memory: 150Mi
   requests:
-    cpu: 100m
-    memory: 128Mi
+    cpu: 200m
+    memory: 100Mi
 
-# Pod security context
-podSecurityContext:
-  runAsNonRoot: true
-  runAsUser: 65534
-  runAsGroup: 65534
-  fsGroup: 65534
-
-# Container security context
+# Security context (container-level)
 securityContext:
-  allowPrivilegeEscalation: false
   readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
   capabilities:
     drop:
       - ALL
@@ -168,10 +158,10 @@ podDisruptionBudget:
   minAvailable: 1
   # maxUnavailable: 1
 
-# Service account
+# Service account (for the server Deployment)
 serviceAccount:
-  create: true
-  name: ""
+  create: false
+  name: mydns-ng
   annotations: {}
 
 # Extra environment variables
@@ -193,12 +183,19 @@ podLabels: {}
 
 # Dynamic DNS sync cronjob (optional)
 ddnsSync:
-  enabled: false
+  enabled: true
   schedule: "*/15 * * * *"
   regions: 3
   failedJobsHistoryLimit: 3
   successfulJobsHistoryLimit: 1
   hostNetwork: true
+  # Dedicated service account + RBAC so cron pods can read node status
+  rbac:
+    create: true
+  # Zone-down detection: flips the `active` flag of region-mapped records
+  # (rr join rr_zone) based on node Ready health so DNS fails over.
+  zoneHealth:
+    enabled: true
 
 # DNS-01 ACME webhook (cert-manager solver) merged into this chart.
 # When enabled, deploys the mydns-acme-webhook as a separate Deployment in

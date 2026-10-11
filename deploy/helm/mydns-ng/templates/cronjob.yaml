@@ -1,0 +1,204 @@
+{{- if .Values.ddnsSync.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "mydns-ng.fullname" . }}-sync-dyn-ip
+  labels:
+    {{- include "mydns-ng.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.ddnsSync.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: {{ .Values.ddnsSync.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ .Values.ddnsSync.failedJobsHistoryLimit }}
+  jobTemplate:
+    spec:
+      {{- with .Values.ddnsSync.regions }}
+      parallelism: {{ . }}
+      completions: {{ . }}
+      {{- end }}
+      template:
+        metadata:
+          labels:
+          {{- include "mydns-ng.ddnsLabels" . | nindent 12 }}
+        spec:
+          restartPolicy: Never
+          {{- if .Values.ddnsSync.rbac.create }}
+          serviceAccountName: {{ include "mydns-ng.ddnsName" . }}
+          {{- end }}
+          hostNetwork: {{ .Values.ddnsSync.hostNetwork }}
+          dnsPolicy: ClusterFirstWithHostNet
+          {{- with .Values.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          affinity:
+            nodeAffinity:
+              preferredDuringSchedulingIgnoredDuringExecution:
+                - weight: 100
+                  preference:
+                    matchExpressions:
+                      - key: node.kubernetes.io/controller
+                        operator: Exists
+          tolerations:
+            - key: node-role.kubernetes.io/controller
+              effect: NoSchedule
+          topologySpreadConstraints:
+            - topologyKey: topology.kubernetes.io/zone
+              whenUnsatisfiable: DoNotSchedule
+              maxSkew: 1
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: {{ include "mydns-ng.ddnsName" . }}
+          containers:
+            - name: {{ include "mydns-ng.ddnsName" . }}
+              image: {{ include "mydns-ng.image" . }}
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: DB_HOST
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "mydns-ng.databaseSecretName" . }}
+                      key: host
+                - name: DB_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "mydns-ng.databaseSecretName" . }}
+                      key: user
+                - name: DB_PASS
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "mydns-ng.databaseSecretName" . }}
+                      key: pass
+                - name: DB_DATABASE
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "mydns-ng.databaseSecretName" . }}
+                      key: database
+                - name: HOSTED_DOMAIN
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "mydns-ng.databaseSecretName" . }}
+                      key: domainCheck
+                - name: NODE_NAME
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: spec.nodeName
+                - name: ZONE_HEALTH_RECONCILE
+                  value: {{ .Values.ddnsSync.zoneHealth.enabled | quote }}
+              command:
+                - sh
+                - -c
+                - |
+                  echo "Starting"
+
+                  IP6=$(curl -6 -s --connect-timeout 10 https://icanhazip.com)
+                  IP4=$(curl -4 -s --connect-timeout 10 https://icanhazip.com)
+
+                  # alternative ipecho.net/plain both 4 and 6
+                  if [ -z "$IP6" ]; then
+                    IP6=$(curl -6 -s --connect-timeout 10 https://ifconfig.me)
+                  fi
+                  if [ -z "$IP4" ]; then
+                    IP4=$(curl -4 -s --connect-timeout 10 https://ipinfo.io/ip)
+                  fi
+
+                  ZONE=$(echo $NODE_NAME | sed -e 's/[0-9]\..*//;s/node//')
+                  if [ ! -z "$IP4" ]; then
+                    R=$(mariadb -N \
+                      -B \
+                      -u$DB_USER \
+                      -p$DB_PASS \
+                      -h$DB_HOST \
+                      -D$DB_DATABASE \
+                      --skip-ssl \
+                      -e "select rr.data from rr left join rr_zone on rr_zone.rr_id = rr.id where rr.data = '$IP4' and rr_zone.zone_id = $ZONE and rr.type = 'A';" \
+                      | grep -Fc "$IP4")
+                      if [ "0" == "$R" ]; then
+                        echo "Updating IPV4 on zone $ZONE to $IP4 ($R)";
+                        mariadb -N \
+                          -B \
+                          -u$DB_USER \
+                          -p$DB_PASS \
+                          -h$DB_HOST \
+                          -D$DB_DATABASE \
+                          --skip-ssl \
+                          -e "update rr left join rr_zone on rr_zone.rr_id = rr.id set rr.data = '$IP4' where rr_zone.zone_id = $ZONE and rr.type = 'A';"
+                      fi
+                  fi
+
+                  if [ ! -z "$IP6" ]; then
+                    R=$(mariadb -N \
+                      -B \
+                      -u$DB_USER \
+                      -p$DB_PASS \
+                      -h$DB_HOST \
+                      -D$DB_DATABASE \
+                      --skip-ssl \
+                      -e "select rr.data from rr left join rr_zone on rr_zone.rr_id = rr.id where rr.data = '$IP6' and rr_zone.zone_id = $ZONE and rr.type = 'AAAA';" \
+                      | grep -Fc "$IP6")
+                      if [ "0" == "$R" ]; then
+                        echo "Updating IPV6 on zone $ZONE to $IP6 ($R)";
+                        mariadb -N \
+                          -B \
+                          -u$DB_USER \
+                          -p$DB_PASS \
+                          -h$DB_HOST \
+                          -D$DB_DATABASE \
+                          --skip-ssl \
+                          -e "update rr left join rr_zone on rr_zone.rr_id = rr.id set rr.data = '$IP6' where rr_zone.zone_id = $ZONE and rr.type = 'AAAA';"
+                      fi
+                  fi
+
+                  #
+                  # Zone-down detection + active-flag health reconciliation for
+                  # region-mapped records (rr join rr_zone). Each record's active
+                  # flag tracks its zone: active iff at least one node in that zone
+                  # is Ready. Every parallel pod reads the same node status and
+                  # computes the same deterministic, idempotent decision, so races
+                  # are harmless.
+                  #
+                  if [ "$ZONE_HEALTH_RECONCILE" = "true" ]; then
+                    KUBE_TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token 2>/dev/null)
+                    if [ -n "$KUBE_TOKEN" ]; then
+                      NODES=$(curl -s --max-time 15 \
+                        --cacert /var/run/secrets/kubernetes.io/serviceaccount/ca.crt \
+                        -H "Authorization: Bearer $KUBE_TOKEN" \
+                        https://kubernetes.default.svc/api/v1/nodes)
+                      if [ -n "$NODES" ]; then
+                        # Per-zone health: 1 if at least one node is Ready, else 0.
+                        ZONEHEALTH=$(echo "$NODES" | awk '
+                          function unq(s,   x){ x=s; sub(/^.*": "/,"",x); sub(/".*/,"",x); return x }
+                          /last-applied-configuration/ { next }
+                          /"name": "node/ { v=unq($0); zone=substr(v,5,1); next }
+                          /"conditions": \[/ { incond=1; next }
+                          incond && /^[ ]*\{$/ { obj=1; ct=""; cs=""; next }
+                          obj && /"type": "/ { ct=unq($0); next }
+                          obj && /"status": "/ { cs=unq($0); next }
+                          incond && obj && /^[ ]*\}[, ]*$/ { if(ct=="Ready"){ cnt[zone]++; if(cs=="True") up[zone]++ } obj=0; next }
+                          END{ for(z in cnt) printf "%s %s\n", z, (up[z]>0?1:0) }
+                        ')
+                        echo "Zone health: $(echo "$ZONEHEALTH" | tr '\n' ' ')"
+                        ROWS=$(mariadb -N -B -u$DB_USER -p$DB_PASS -h$DB_HOST -D$DB_DATABASE --skip-ssl \
+                          -e "select rr.id, rr.name, rr.type, rr.active, z.zone_id from rr join rr_zone z on z.rr_id = rr.id order by rr.name, rr.type, z.zone_id;")
+                        UPDATES=$(echo "$ROWS" | awk -v ZH="$ZONEHEALTH" '
+                          BEGIN{ n=split(ZH,L,"\n"); for(i=1;i<=n;i++){ split(L[i],A," "); if(A[1]!=""){ zh[A[1]]=(A[2]=="1"?1:0); zhp[A[1]]=1 } } }
+                          { id=$1; name=$2; type=$3; active=$4; zone=$5;
+                            rid[NR]=id; rz[NR]=zone; ra[NR]=active }
+                          END{ for(r=1;r<=NR;r++){ id=rid[r]; zone=rz[r]; d="";
+                            if(zhp[zone]==1) d=(zh[zone]==1?"Y":"N");
+                            if(d!="" && ra[r]!=d) printf "update rr set active=%c%s%c where id=%s;\n",39,d,39,id } }')
+                        if [ -n "$UPDATES" ]; then
+                          echo "Applying active-flag failover updates:"
+                          echo "$UPDATES"
+                          mariadb -N -B -u$DB_USER -p$DB_PASS -h$DB_HOST -D$DB_DATABASE --skip-ssl -e "$UPDATES"
+                        else
+                          echo "Active flags already consistent; no updates."
+                        fi
+                      fi
+                    fi
+                  fi
+                  echo "Done"
+              securityContext:
+                {{- toYaml .Values.securityContext | nindent 16 }}
+      ttlSecondsAfterFinished: 172800
+{{- end }}

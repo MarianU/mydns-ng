@@ -10,23 +10,20 @@ metadata:
   {{- end }}
 spec:
   type: {{ .Values.service.type }}
-  {{- if eq .Values.service.type "LoadBalancer" }}
-  externalTrafficPolicy: {{ .Values.service.externalTrafficPolicy }}
-  {{- end }}
   ports:
-    - name: dns-udp
+    - name: server
       port: {{ .Values.service.dns.port }}
-      targetPort: dns-udp
+      targetPort: name-udp
       protocol: UDP
       {{- if and (eq .Values.service.type "NodePort") .Values.service.nodePort.udp }}
-      nodePort: {{ .Values.service.nodePort.udp }}
+      nodePort: {{ .Values.service.nodePort.udp | int }}
       {{- end }}
-    - name: dns-tcp
+    - name: server-tcp
       port: {{ .Values.service.dns.port }}
-      targetPort: dns-tcp
+      targetPort: name-tcp
       protocol: TCP
       {{- if and (eq .Values.service.type "NodePort") .Values.service.nodePort.tcp }}
-      nodePort: {{ .Values.service.nodePort.tcp }}
+      nodePort: {{ .Values.service.nodePort.tcp | int }}
       {{- end }}
     {{- if .Values.metrics.enabled }}
     - name: metrics
@@ -36,3 +33,6 @@ spec:
     {{- end }}
   selector:
     {{- include "mydns-ng.selectorLabels" . | nindent 4 }}
+  {{- if .Values.service.sessionAffinity }}
+  sessionAffinity: {{ .Values.service.sessionAffinity }}
+  {{- end }}

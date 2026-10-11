@@ -60,6 +60,26 @@ Create the name of the service account to use
 {{- end }}
 
 {{/*
+Name of the ddnsSync CronJob + its service account/pods.
+*/}}
+{{- define "mydns-ng.ddnsName" -}}
+{{- printf "%s-ddns" (include "mydns-ng.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{/*
+Labels for the ddnsSync CronJob.
+*/}}
+{{- define "mydns-ng.ddnsLabels" -}}
+helm.sh/chart: {{ include "mydns-ng.chart" . }}
+app.kubernetes.io/name: {{ include "mydns-ng.ddnsName" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+{{- if .Chart.AppVersion }}
+app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+{{- end }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- end }}
+
+{{/*
 Create image name with tag
 */}}
 {{- define "mydns-ng.image" -}}
@@ -74,7 +94,7 @@ Database secret name
 {{- if .Values.database.existingSecret }}
 {{- .Values.database.existingSecret }}
 {{- else }}
-{{- include "mydns-ng.fullname" . }}-db
+{{- include "mydns-ng.fullname" . }}-secret
 {{- end }}
 {{- end }}
 
