@@ -47,7 +47,7 @@ spec:
 # --- Write side: OpenBao policy + kubernetes auth role for the webhook SA ---
 # Mirror the existing vso-openbao / vso-k8s pattern so the
 # webhook's SA (in the release namespace) can authenticate to the kubernetes
-# auth mount and read database/creds/<role>.
+# auth mount and read <mount>/creds/<role> (mount = crossplane.mount, e.g. mariadb).
 apiVersion: vault.vault.upbound.io/v1alpha1
 kind: Policy
 metadata:
@@ -61,8 +61,8 @@ spec:
       path "auth/token/lookup-self" { capabilities = ["read"] }
       path "auth/token/renew-self" { capabilities = ["update"] }
       path "sys/mounts" { capabilities = ["read"] }
-      path "database/creds/{{ .Values.dns01.db.vault.crossplane.role }}" { capabilities = ["read"] }
-      path "database/roles/{{ .Values.dns01.db.vault.crossplane.role }}" { capabilities = ["read", "list"] }
+      path "{{ .Values.dns01.db.vault.crossplane.mount }}/creds/{{ .Values.dns01.db.vault.crossplane.role }}" { capabilities = ["read"] }
+      path "{{ .Values.dns01.db.vault.crossplane.mount }}/roles/{{ .Values.dns01.db.vault.crossplane.role }}" { capabilities = ["read", "list"] }
   providerConfigRef:
     name: {{ .Values.dns01.db.vault.crossplane.providerConfigRef | quote }}
 
