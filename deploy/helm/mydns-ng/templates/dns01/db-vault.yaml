@@ -1,0 +1,142 @@
+{{- if and .Values.dns01.enabled .Values.dns01.db.vault.enabled }}
+# ---------------------------------------------------------------------------
+# OPTIONAL DNS-01 webhook DB provisioning via OpenBao + VaultSecretsOperator.
+#
+# This block only renders when dns01.db.vault.enabled is true. When disabled
+# (the default), none of these resources exist and mydns deploys normally with
+# a statically-rendered or existing Secret, so clusters without the Crossplane
+# provider-vault or VSO operators are unaffected.
+#
+# It provisions the webhook's DB credentials dynamically:
+#   - Crossplane (provider-vault) is the WRITE side: it creates the OpenBao
+#     resources the webhook needs (the DB role, a policy, and a kubernetes
+#     auth role). It binds the DB role to an EXISTING database-engine
+#     connection (dns01.db.vault.crossplane.connection); the chart NEVER
+#     creates a connection, so no DB admin/root credential is referenced
+#     anywhere in this chart.
+#   - VSO (VaultSecretsOperator) is the READ side: VaultDynamicSecret syncs a
+#     short-lived credential whose username/password are reshaped into the
+#     flat host/port/user/password/database Secret the webhook reads (via
+#     `mydns-ng.webhookDbSecret`).
+# ---------------------------------------------------------------------------
+
+# --- Write side: provider-vault managed resource for the OpenBao DB role ---
+# Credential-free: only creates the OpenBao database role. Its `dbName`
+# references an existing engine connection on the `mount` (prepared out-of-band
+# by the operator) - it binds to that connection, never to any DB credential.
+apiVersion: database.vault.upbound.io/v1alpha1
+kind: SecretBackendRole
+metadata:
+  name: {{ include "mydns-ng.webhookDbSecret" . }}
+  labels:
+    {{- include "mydns-ng.labels" . | nindent 4 }}
+spec:
+  forProvider:
+    backend: {{ .Values.dns01.db.vault.crossplane.mount | quote }}
+    name: {{ .Values.dns01.db.vault.crossplane.role | quote }}
+    dbName: {{ .Values.dns01.db.vault.crossplane.connection | quote }}
+    defaultTtl: {{ .Values.dns01.db.vault.crossplane.defaultTtl }}
+    maxTtl: {{ .Values.dns01.db.vault.crossplane.maxTtl }}
+    creationStatements:
+      {{- range .Values.dns01.db.vault.crossplane.creationStatements }}
+      - {{ . | quote }}
+      {{- end }}
+  providerConfigRef:
+    name: {{ .Values.dns01.db.vault.crossplane.providerConfigRef | quote }}
+
+# --- Write side: OpenBao policy + kubernetes auth role for the webhook SA ---
+# Mirror the existing vso-openbao / vso-k8s pattern so the
+# webhook's SA (in the release namespace) can authenticate to the kubernetes
+# auth mount and read database/creds/<role>.
+apiVersion: vault.vault.upbound.io/v1alpha1
+kind: Policy
+metadata:
+  name: {{ .Values.dns01.db.vault.vso.policy | default (printf "%s-db" .Values.dns01.db.vault.crossplane.role) }}
+  annotations:
+    crossplane.io/external-name: {{ .Values.dns01.db.vault.vso.policy | default (printf "%s-db" .Values.dns01.db.vault.crossplane.role) }}
+spec:
+  forProvider:
+    name: {{ .Values.dns01.db.vault.vso.policy | default (printf "%s-db" .Values.dns01.db.vault.crossplane.role) }}
+    policy: |
+      path "auth/token/lookup-self" { capabilities = ["read"] }
+      path "auth/token/renew-self" { capabilities = ["update"] }
+      path "sys/mounts" { capabilities = ["read"] }
+      path "database/creds/{{ .Values.dns01.db.vault.crossplane.role }}" { capabilities = ["read"] }
+      path "database/roles/{{ .Values.dns01.db.vault.crossplane.role }}" { capabilities = ["read", "list"] }
+  providerConfigRef:
+    name: {{ .Values.dns01.db.vault.crossplane.providerConfigRef | quote }}
+
+---
+apiVersion: kubernetes.vault.upbound.io/v1alpha1
+kind: AuthBackendRole
+metadata:
+  name: {{ .Values.dns01.db.vault.vso.kubernetesRole | default .Values.dns01.db.vault.crossplane.role }}
+  annotations:
+    crossplane.io/external-name: auth/kubernetes/role/{{ .Values.dns01.db.vault.vso.kubernetesRole | default .Values.dns01.db.vault.crossplane.role }}
+spec:
+  forProvider:
+    backend: kubernetes
+    roleName: {{ .Values.dns01.db.vault.vso.kubernetesRole | default .Values.dns01.db.vault.crossplane.role }}
+    boundServiceAccountNames:
+      - {{ .Values.dns01.db.vault.vso.serviceAccount }}
+    boundServiceAccountNamespaces:
+      - {{ .Release.Namespace }}
+    tokenPolicies:
+      - {{ .Values.dns01.db.vault.vso.policy | default (printf "%s-db" .Values.dns01.db.vault.crossplane.role) }}
+    tokenTtl: 3600
+    tokenMaxTtl: 86400
+  providerConfigRef:
+    name: {{ .Values.dns01.db.vault.crossplane.providerConfigRef | quote }}
+
+---
+# --- Read side: VSO auth for the release namespace ---
+apiVersion: secrets.hashicorp.com/v1beta1
+kind: VaultAuth
+metadata:
+  name: {{ .Values.dns01.db.vault.vso.vaultAuthRef | quote }}
+  namespace: {{ .Release.Namespace | quote }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-5"
+  labels:
+    {{- include "mydns-ng.labels" . | nindent 4 }}
+spec:
+  method: kubernetes
+  mount: kubernetes
+  kubernetes:
+    role: {{ .Values.dns01.db.vault.vso.kubernetesRole | default .Values.dns01.db.vault.crossplane.role | quote }}
+    serviceAccount: {{ .Values.dns01.db.vault.vso.serviceAccount | quote }}
+    tokenExpirationSeconds: {{ .Values.dns01.db.vault.vso.tokenExpirationSeconds }}
+  vaultConnectionRef: vault/openbao
+
+---
+# --- Read side: dynamic credential -> flat webhook Secret ---
+apiVersion: secrets.hashicorp.com/v1beta1
+kind: VaultDynamicSecret
+metadata:
+  name: {{ include "mydns-ng.webhookDbSecret" . }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "mydns-ng.labels" . | nindent 4 }}
+spec:
+  mount: {{ .Values.dns01.db.vault.crossplane.mount | quote }}
+  path: creds/{{ .Values.dns01.db.vault.crossplane.role }}
+  vaultAuthRef: {{ .Values.dns01.db.vault.vso.vaultAuthRef | quote }}
+  renewalPercent: {{ .Values.dns01.db.vault.vso.renewalPercent }}
+  destination:
+    create: true
+    overwrite: false
+    name: {{ include "mydns-ng.webhookDbSecret" . }}
+    transformation:
+      excludeRaw: true
+      templates:
+        host:
+          text: {{ .Values.dns01.db.vault.vso.host | quote }}
+        port:
+          text: {{ .Values.dns01.db.vault.vso.port | quote }}
+        user:
+          text: '{{ "{{ .username }}" }}'
+        password:
+          text: '{{ "{{ .password }}" }}'
+        database:
+          text: {{ .Values.dns01.db.vault.vso.database | quote }}
+{{- end }}

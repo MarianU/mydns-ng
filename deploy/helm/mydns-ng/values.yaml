@@ -249,6 +249,77 @@ dns01:
     password: ""
     database: "mydns"
 
+    # OPTIONAL - provision the webhook DB credentials dynamically via
+    # OpenBao/Crossplane (write side) + VaultSecretsOperator (read side)
+    # instead of a statically-rendered Secret.
+    #
+    # When enabled, this chart renders:
+    #   write side (Crossplane / provider-vault):
+    #     - SecretBackendRole: creates a NEW DB role on the OpenBao mount that
+    #       binds to an EXISTING database-engine connection
+    #       (crossplane.connection).
+    #       The chart NEVER creates a connection (that needs DB admin/root
+    #       credentials and is cluster-specific), it only binds to one the
+    #       operator already configured on the mount.
+    #     - Policy + AuthBackendRole: the OpenBao policy + kubernetes-auth role
+    #       the VSO service account uses to read the dynamic credentials.
+    #   read side (VSO):
+    #     - VaultAuth + VaultDynamicSecret: syncs a short-lived
+    #       username/password
+    #       into a Secret named `mydns-ng.webhookDbSecret` with the flat
+    #       host/port/user/password/database keys the webhook requires.
+    #
+    # When disabled (default), no Crossplane or VSO resource is rendered and
+    # mydns deploys normally using the static Secret above / existingSecret,
+    # so clusters without the crossplane provider or VSO are unaffected.
+    vault:
+      enabled: false
+      # provider-vault ProviderConfig / OpenBao mount + existing connection
+      crossplane:
+        # ProviderConfig (vault.upbound.io) the managed resources reference.
+        providerConfigRef: openbao
+        # OpenBao database-engine mount path (e.g. "mariadb", "database").
+        mount: mariadb
+        # Name of the NEW DB role to create on the mount for the webhook. The
+        # VaultDynamicSecret reads creds/<role>.
+        role: mydns-webhook
+        # Name of the EXISTING database-engine CONNECTION the role binds to
+        # (its dbName). REQUIRED (must be non-empty) when vault is enabled.
+        # This is not auto-created; it must already exist on `mount` (created
+        # out-of-band). Do not set it to the role name unless such a
+        # connection already exists.
+        connection: "galera"
+        defaultTtl: 3600
+        maxTtl: 86400
+        # SQL run by OpenBao when creating the dynamic user. Placeholders
+        # {{name}}/{{password}} are OpenBao-generated values.
+        creationStatements:
+          - "CREATE USER '{{name}}'@'%' IDENTIFIED BY '{{password}}';"
+          - "GRANT SELECT ON `mydns`.`soa` TO '{{name}}'@'%';"
+          - "GRANT SELECT, INSERT, DELETE ON `mydns`.`rr` TO '{{name}}'@'%';"
+          - "GRANT UPDATE (serial) ON `mydns`.`soa` TO '{{name}}'@'%';"
+      # VSO read-side wiring (VaultDynamicSecret + VaultAuth)
+      vso:
+        vaultAuthRef: dns-openbao
+        serviceAccount: default
+        # OpenBao kubernetes auth role the VSO serviceAccount logs in with.
+        # This is NOT the DB role name; it must be a kubernetes auth role that
+        # exists on the vault kubernetes mount. Empty -> fall back to
+        # crossplane.role (the pre-fix default).
+        kubernetesRole: ""
+        # Name of the OpenBao policy the kubernetes auth role is granted. The
+        # provider-vault Policy managed resource is created with this name and
+        # grants read on database/creds/<role>. Empty -> <role>-db.
+        policy: ""
+        tokenExpirationSeconds: 604800
+        # how often VSO renews; 0.0 disables auto-restart
+        renewalPercent: 67
+        # DB host/port/database baked into the synced Secret (the address the
+        # existing `connection` points at). Required when vault is enabled.
+        host: "mariadb.database.svc"
+        port: "3306"
+        database: "mydns"
+
   # Resource requests/limits for the webhook Deployment
   resources:
     requests:
