@@ -1,0 +1,148 @@
+# Release workflow for MyDNS-NG.
+# Builds the mydns C server + mydns-acme-webhook (Go) into one combined
+# image, pushes it to GitHub Container Registry, then packages and pushes
+# the mydns-ng Helm chart to the GHCR OCI registry.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'mydns-v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g., v1.2.8.44)'
+        required: true
+
+env:
+  REGISTRY: ghcr.io
+  OWNER: marianu
+  IMAGE_NAME: mydns-ng
+  IMAGE_BASE: ghcr.io/marianu/mydns-ng
+  CHART_DIR: deploy/helm/mydns-ng
+
+jobs:
+  prepare:
+    name: Prepare Release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      semver: ${{ steps.version.outputs.semver }}
+      is_prerelease: ${{ steps.version.outputs.is_prerelease }}
+    steps:
+      - name: Determine version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            # Strip component prefix: mydns-v1.2.8.44 -> v1.2.8.44
+            VERSION="${GITHUB_REF#refs/tags/mydns-}"
+          fi
+          if [[ ! "$VERSION" =~ ^v ]]; then
+            VERSION="v${VERSION}"
+          fi
+          SEMVER="${VERSION#v}"
+          if [[ "$VERSION" == *"-"* ]]; then
+            IS_PRERELEASE="true"
+          else
+            IS_PRERELEASE="false"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "semver=${SEMVER}" >> "$GITHUB_OUTPUT"
+          echo "is_prerelease=${IS_PRERELEASE}" >> "$GITHUB_OUTPUT"
+          echo "Version: ${VERSION} (semver ${SEMVER})"
+
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+    needs: prepare
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.13.0
+      - name: Lint Helm chart
+        run: helm lint "${{ env.CHART_DIR }}"
+      - name: Template Helm chart
+        run: |
+          helm template mydns-ng "${{ env.CHART_DIR }}" \
+            --namespace dns
+
+  docker:
+    name: Build & Push Image
+    runs-on: ubuntu-latest
+    needs: [prepare, validate]
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_BASE }}:${{ needs.prepare.outputs.semver }}
+            ${{ env.IMAGE_BASE }}:${{ needs.prepare.outputs.version }}
+            ${{ env.IMAGE_BASE }}:latest
+
+  helm:
+    name: Package & Push Helm Chart
+    runs-on: ubuntu-latest
+    needs: [prepare, docker]
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.13.0
+      - name: Stage chart
+        run: |
+          cp -r "${{ env.CHART_DIR }}" /tmp/mydns-ng-chart
+          VERSION="${{ needs.prepare.outputs.semver }}"
+          REPO="${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.IMAGE_NAME }}"
+
+          # Helm chart version must be valid semver (MAJOR.MINOR.PATCH).
+          # mydns uses 4-segment tags (1.2.8.44); map the 4th into a
+          # prerelease -> 1.2.8-44. appVersion keeps the full mydns version.
+          CHART_VERSION="${VERSION}"
+          if [[ "${VERSION}" =~ ^([0-9]+\.[0-9]+\.[0-9]+)\.([0-9]+)$ ]]; then
+            CHART_VERSION="${BASH_REMATCH[1]}-${BASH_REMATCH[2]}"
+          fi
+
+          sed -i "s/^version:.*/version: ${CHART_VERSION}/" \
+            /tmp/mydns-ng-chart/Chart.yaml
+          sed -i "s/^appVersion:.*/appVersion: \"${VERSION}\"/" \
+            /tmp/mydns-ng-chart/Chart.yaml
+          sed -i "s|repository:.*|repository: ${REPO}|" \
+            /tmp/mydns-ng-chart/values.yaml
+
+          echo "Chart version: ${CHART_VERSION}"
+          grep -A2 "^image:" /tmp/mydns-ng-chart/values.yaml
+      - name: Package chart
+        run: |
+          helm package /tmp/mydns-ng-chart --destination /tmp
+          ls -la /tmp/mydns-ng-*.tgz
+      - name: Login to GHCR (OCI)
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | \
+            helm registry login ${{ env.REGISTRY }} \
+              -u ${{ github.actor }} --password-stdin
+      - name: Push chart to GHCR
+        run: |
+          helm push /tmp/mydns-ng-*.tgz \
+            oci://${{ env.REGISTRY }}/${{ env.OWNER }}
+          echo "Pushed: oci://${{ env.REGISTRY }}/${{ env.OWNER }}/mydns-ng"

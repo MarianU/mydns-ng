@@ -1,0 +1,100 @@
+# CI for mydns-ng components (cert-manager-webhook, zone-health-monitor)
+# and the mydns-ng Helm chart. Mirrors the previous Forgejo CI on
+# GitHub-hosted runners; publishes nothing.
+
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - 'cert-manager-webhook/**'
+      - 'zone-health-monitor/**'
+      - 'deploy/**'
+      - '.github/workflows/ci.yaml'
+  pull_request:
+    branches:
+      - main
+      - master
+
+env:
+  GO_VERSION: '1.21'
+
+jobs:
+  webhook:
+    name: Webhook (lint, test, build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cert-manager-webhook
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: go vet
+        run: go vet ./...
+      - name: go fmt
+        run: |
+          if [ -n "$(gofmt -l .)" ]; then
+            echo "::error::Code is not formatted. Run 'go fmt ./...'"
+            gofmt -d .
+            exit 1
+          fi
+      - name: Test
+        run: go test -v -race -coverprofile=coverage.out ./pkg/...
+      - name: Build
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+            -ldflags="-w -s" -o webhook-linux-amd64 .
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build \
+            -ldflags="-w -s" -o webhook-linux-arm64 .
+          ls -la webhook-*
+
+  health-monitor:
+    name: Zone Health Monitor (lint, test, build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: zone-health-monitor
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: go vet
+        run: go vet ./...
+      - name: go fmt
+        run: |
+          if [ -n "$(gofmt -l .)" ]; then
+            echo "::error::Code is not formatted. Run 'go fmt ./...'"
+            gofmt -d .
+            exit 1
+          fi
+      - name: Test
+        run: go test -v -race -coverprofile=coverage.out ./pkg/...
+      - name: Build
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+            -ldflags="-w -s" -o health-monitor-linux-amd64 .
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build \
+            -ldflags="-w -s" -o health-monitor-linux-arm64 .
+          ls -la health-monitor-*
+
+  helm-lint:
+    name: Helm Lint (mydns-ng chart)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.13.0
+      - name: Lint chart
+        run: helm lint deploy/helm/mydns-ng
+      - name: Template chart
+        run: |
+          helm template mydns-ng deploy/helm/mydns-ng \
+            --namespace dns \
+            --set image.tag=test
