@@ -55,3 +55,6 @@ po/stamp-po
 
 # Temp files
 asd
+
+# Internal planning docs (not for the public repo)
+docs/modernization-plan/

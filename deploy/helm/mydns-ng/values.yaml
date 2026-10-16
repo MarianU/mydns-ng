@@ -8,13 +8,12 @@ fullnameOverride: ""
 replicaCount: 3
 
 image:
-  # Combined mydns server + DNS-01 webhook image (private registry)
-  repository: ghcr.io/marianu/mydns
+  # Combined mydns server + DNS-01 webhook image
+  repository: ghcr.io/marianu/mydns-ng
   tag: ""  # Defaults to appVersion
   pullPolicy: IfNotPresent
 
-imagePullSecrets:
-  - name: ghcr-pull-secret
+imagePullSecrets: []
 
 # Server termination grace period (seconds)
 terminationGracePeriodSeconds: 60
