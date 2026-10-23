@@ -1,0 +1,48 @@
+{{- if and .Values.ddnsSync.enabled .Values.ddnsSync.rbac.create }}
+{{- $ddns := include "mydns-ng.ddnsName" . }}
+# ServiceAccount used by the ddnsSync CronJob pods.
+#
+# The CronJob template sets
+#   serviceAccountName: {{ include "mydns-ng.ddnsName" . }}
+# whenever `ddnsSync.rbac.create` is true, but the chart previously never
+# rendered this ServiceAccount - the only SA template is the *server* one, gated
+# on `serviceAccount.create`. Consequently every ddnsSync pod failed to be created
+# with `serviceaccount <namespace>/<ddnsName> not found`, and because the CronJob
+# runs with `concurrencyPolicy: Forbid`, the first such failure wedged the CronJob
+# on a job that could never complete, silently blocking every later run.
+# This block restores the dedicated SA + node-reader RBAC the cron requires.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $ddns }}
+  labels:
+    {{- include "mydns-ng.labels" . | nindent 4 }}
+---
+# Allow the ddnsSync pods to read node status for zone-health reconciliation
+# (the `ZONE_HEALTH_RECONCILE` path calls GET /api/v1/nodes).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $ddns }}-node-reader
+  labels:
+    {{- include "mydns-ng.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $ddns }}-node-reader
+  labels:
+    {{- include "mydns-ng.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $ddns }}-node-reader
+subjects:
+  - kind: ServiceAccount
+    name: {{ $ddns }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
